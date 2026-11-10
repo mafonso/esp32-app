@@ -4,7 +4,7 @@ ESP32-S3 (N16R8) firmware with a web playground for the board, a settings page, 
 It is also a boilerplate: features are self-contained files (see [CLAUDE.md](CLAUDE.md#how-to-add-a-feature)).
 
 - **Web UI** at `http://esp32-xxxxxx.local/` (the last 3 bytes of the board's MAC address, or the name set with `name`):
-  a playground of live feature cards, and **Settings** (cog icon) with firmware version, board stats, Wi-Fi, and **Check for updates / Install**
+  a playground of live feature cards, and **Settings** (cog icon) with firmware version, board stats, **Check for updates / Install**, Wi-Fi and hostname changes, an optional admin password and a live log viewer
 - **OTA** from GitHub Releases, with automatic rollback: a new image that can't reach Wi-Fi within 60 s is reverted on the next boot
 - **USB setup menu**: connect to the native USB port with any serial terminal to get an `esp32>` prompt
 
@@ -25,6 +25,7 @@ Release builds made in CI don't contain it, and OTA updates keep the credentials
 idf.py monitor        # or: screen /dev/cu.usbmodem* 115200
 esp32> wifi IoT mypassword
 esp32> name esp-dev       # DHCP/mDNS hostname, kept across OTA ('name -' resets)
+esp32> passwd s3cret       # web admin password, user 'admin' ('passwd -' removes it)
 esp32> status
 esp32> ota check
 esp32> ota update
@@ -49,9 +50,19 @@ Boards read `releases/latest/download/version.json`, and install when you click 
 | GET | `/api/ota` | OTA state and progress |
 | POST | `/api/ota/check` | fetch the latest release manifest |
 | POST | `/api/ota/update` | install the release found by the last check |
-| POST | `/api/reboot` | restart |
+| POST | `/api/reboot` | restart (admin) |
+| GET | `/api/wifi/scan` | nearby networks `[{ssid, rssi, channel, auth}]`, strongest first |
+| GET | `/api/settings/wifi` | saved SSID and the last change `{ssid, state: idle\|trying\|ok\|failed, attempt, message}` |
+| POST | `/api/settings/wifi` | `{ssid, password}` (admin): 202, then tries it for 30 s; saved only if it connects, else the board goes back |
+| GET | `/api/settings/name` | `{name, default}` |
+| POST | `/api/settings/name` | `{name}` (admin; empty resets): saves and reboots |
+| GET | `/api/settings/password` | `{enabled, user}` |
+| POST | `/api/settings/password` | `{password}` (admin; empty removes it) |
+| GET | `/api/logs?after=<seq>` | (admin) buffered log lines after `seq`: `{seq, boot, lines, dropped}` |
 
 POST requests must send an `X-Requested-With` header (any value).
+Routes marked admin need HTTP Basic auth (user `admin`) once a password is set with `passwd` or in Settings; with none set they are open.
+OTA check and update are admin routes too.
 
 `/ws` is a WebSocket carrying JSON messages `{"t": topic, "d": data}` both ways; e.g. topic `sysinfo` streams board stats every 2 s.
 `/features.json` lists the feature UI modules; every other GET serves a file from `main/web/`.
@@ -62,7 +73,7 @@ POST requests must send an `X-Requested-With` header (any value).
 |---|---|
 | `partitions.csv` | two 6 MB OTA slots, NVS, 3.9 MB `storage` |
 | `main/app_main.c` | boot sequence |
-| `main/core/` | Wi-Fi + mDNS, NVS settings, OTA, HTTP server and WebSocket hub, USB console, app events |
+| `main/core/` | Wi-Fi + mDNS, NVS settings, admin auth, log buffer, OTA, HTTP server, settings API and WebSocket hub, USB console, app events |
 | `main/features/` | one file per feature, registered in `features.c` (`sysinfo.c` is the example) |
 | `main/web/` | frontend shell (`index.html`, `app.js`, `app.css`) and the built-in Settings sections (`settings.js`) |
 | `main/web/features/` | one ES module per feature card, listed automatically in `/features.json` |
