@@ -87,6 +87,8 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
 6. **Events between features**: add an ID to `app_event_id_t` in `core/app_events.h`, post with
    `app_event_post(APP_EVENT_X, &data, sizeof(data))`, subscribe with
    `esp_event_handler_register(APP_EVENT, APP_EVENT_X, handler, NULL)` in init.
+   Example: `button.c` posts `APP_EVENT_BUTTON` and `led.c` cycles its mode on it; neither calls
+   the other.
 7. **UI** (optional): `main/web/features/<name>.js` is picked up by the build and loaded by the page:
    ```js
    export default function (App) {
