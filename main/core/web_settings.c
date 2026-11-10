@@ -6,6 +6,7 @@
 #include "esp_http_server.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "cJSON.h"
 #include "settings.h"
 #include "wifi.h"
@@ -226,6 +227,9 @@ static esp_err_t password_post(httpd_req_t *req)
 
 // ---- Logs ----
 
+// Random per boot, so a client can tell that sequence numbers started over.
+static uint32_t s_boot_id;
+
 static void add_line(const char *line, size_t len, void *ctx)
 {
     char buf[LOGBUF_LINE_MAX + 1];
@@ -252,6 +256,10 @@ static esp_err_t logs_get(httpd_req_t *req)
     logbuf_read(after, LOGS_MAX_BYTES, &last, &dropped, add_line, lines);
     cJSON_AddNumberToObject(o, "seq", last);
     cJSON_AddBoolToObject(o, "dropped", dropped);
+    while (!s_boot_id) {
+        s_boot_id = esp_random() & 0x7fffffff;
+    }
+    cJSON_AddNumberToObject(o, "boot", s_boot_id);
     return web_send_json(req, o);
 }
 
