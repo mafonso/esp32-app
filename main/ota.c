@@ -141,6 +141,9 @@ esp_err_t ota_check(void)
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     esp_err_t err = esp_http_client_perform(client);
     int code = esp_http_client_get_status_code(client);
+    char final_url[256] = "";
+    esp_http_client_get_url(client, final_url, sizeof(final_url));
+    ESP_LOGI(TAG, "manifest: HTTP %d from %s (%d bytes)", code, final_url, body.len);
     esp_http_client_cleanup(client);
     if (err == ESP_OK && code != 200) {
         ESP_LOGE(TAG, "manifest HTTP status %d", code);
