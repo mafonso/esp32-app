@@ -28,6 +28,8 @@ esp32> name esp-dev       # DHCP/mDNS hostname, kept across OTA ('name -' resets
 esp32> status
 esp32> ota check
 esp32> ota update
+esp32> led breathe #ff8000 20   # RGB LED: off|solid|breathe|blink|rainbow [#rrggbb] [brightness]
+esp32> led gpio 38              # if the LED stays dark (DevKitC-1 v1.1 boards)
 ```
 
 ## Releasing a new version
@@ -46,6 +48,8 @@ Boards read `releases/latest/download/version.json`, and install when you click 
 |---|---|---|
 | GET | `/api/info` | firmware, board and Wi-Fi stats |
 | GET | `/api/sysinfo` | board stats only (example feature) |
+| GET, POST | `/api/led` | RGB LED state `{mode, color, brightness, speed, gpio}`; POST any subset |
+| GET | `/api/button` | BOOT button `{pressed, count, long_press}` |
 | GET | `/api/ota` | OTA state and progress |
 | POST | `/api/ota/check` | fetch the latest release manifest |
 | POST | `/api/ota/update` | install the release found by the last check |
@@ -53,7 +57,7 @@ Boards read `releases/latest/download/version.json`, and install when you click 
 
 POST requests must send an `X-Requested-With` header (any value).
 
-`/ws` is a WebSocket carrying JSON messages `{"t": topic, "d": data}` both ways; e.g. topic `sysinfo` streams board stats every 2 s.
+`/ws` is a WebSocket carrying JSON messages `{"t": topic, "d": data}` both ways; e.g. topic `sysinfo` streams board stats every 2 s, `led` keeps the LED controls of every open page in sync, and `button` reports BOOT presses.
 `/features.json` lists the feature UI modules; every other GET serves a file from `main/web/`.
 
 ## Layout

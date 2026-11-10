@@ -8,6 +8,8 @@ static const char *TAG = "features";
 // One line per feature, in alphabetical order. Each X(name) refers to the
 // `const feature_t name_feature` defined in features/name.c.
 #define FEATURE_LIST(X) \
+    X(button)           \
+    X(led)              \
     X(sysinfo)          \
     /* end of list */
 
