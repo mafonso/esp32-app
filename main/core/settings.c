@@ -1,4 +1,5 @@
 #include <string.h>
+#include <ctype.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -93,6 +94,72 @@ esp_err_t settings_set_name(const char *name)
     err = name[0] ? nvs_set_str(h, "name", name) : nvs_erase_key(h, "name");
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err;
+}
+
+bool settings_valid_hostname(const char *n)
+{
+    size_t len = strlen(n);
+    if (len == 0 || len >= SETTINGS_NAME_MAX || n[0] == '-' || n[len - 1] == '-') {
+        return false;
+    }
+    for (const char *c = n; *c; c++) {
+        if (!isalnum((unsigned char)*c) && *c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+esp_err_t settings_get_admin_hash(uint8_t salt[SETTINGS_SALT_LEN], uint8_t hash[SETTINGS_HASH_LEN])
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READONLY, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    size_t len = SETTINGS_SALT_LEN;
+    err = nvs_get_blob(h, "admin_salt", salt, &len);
+    if (err == ESP_OK && len != SETTINGS_SALT_LEN) {
+        err = ESP_ERR_INVALID_SIZE;
+    }
+    if (err == ESP_OK) {
+        len = SETTINGS_HASH_LEN;
+        err = nvs_get_blob(h, "admin_hash", hash, &len);
+        if (err == ESP_OK && len != SETTINGS_HASH_LEN) {
+            err = ESP_ERR_INVALID_SIZE;
+        }
+    }
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t settings_set_admin_hash(const uint8_t salt[SETTINGS_SALT_LEN], const uint8_t hash[SETTINGS_HASH_LEN])
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (salt && hash) {
+        err = nvs_set_blob(h, "admin_salt", salt, SETTINGS_SALT_LEN);
+        if (err == ESP_OK) {
+            err = nvs_set_blob(h, "admin_hash", hash, SETTINGS_HASH_LEN);
+        }
+    } else {
+        // Hash first: without it the password is off even if the salt survives.
+        err = nvs_erase_key(h, "admin_hash");
+        if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+            err = nvs_erase_key(h, "admin_salt");
+        }
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = ESP_OK;
+        }
     }
     if (err == ESP_OK) {
         err = nvs_commit(h);

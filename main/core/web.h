@@ -25,6 +25,7 @@ esp_err_t web_register_routes(const httpd_uri_t *routes, size_t n);
 // Send `json` as the response (takes ownership and frees it).
 esp_err_t web_send_json(httpd_req_t *req, cJSON *json);
 
+// Admin-only routes also call web_require_admin(req) (auth.h) right after this.
 // For state-changing requests: true if the X-Requested-With header is present,
 // else sends 403 and returns false (the handler should then return ESP_OK).
 bool web_check_csrf(httpd_req_t *req);
@@ -54,3 +55,9 @@ int web_ws_client_count(void);
 
 // Internal: called by web_start() to register /ws.
 esp_err_t web_ws_init(httpd_handle_t server);
+
+// Restart the board in about half a second, after the current response is sent.
+void web_reboot_soon(void);
+
+// Internal: called by web_start() to register the settings/admin API (web_settings.c).
+esp_err_t web_settings_init(void);
