@@ -1,6 +1,6 @@
-// Chip temperature: owns the internal sensor, keeps a 10-minute history in a
-// ring buffer and streams each sample on WebSocket topic "temp". Other code
-// reads the current value with temp_get_celsius(). UI: web/features/temp.js.
+// Chip temperature: owns the internal sensor, keeps a 10-minute history of 2 s
+// means in a ring buffer and streams each one on WebSocket topic "temp". Other
+// code reads the latest mean with temp_get_celsius(). UI: web/features/temp.js.
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,28 +20,41 @@ static const char *TAG = "temp";
 
 #define INTERVAL_S 2
 #define HISTORY_LEN (10 * 60 / INTERVAL_S)  // 10 minutes
+// The sensor reports in ~1 °C steps, so a single reading flips between two
+// values. Read it often and keep the mean of each interval instead.
+#define READ_MS 200
+#define READS_PER_SAMPLE (INTERVAL_S * 1000 / READ_MS)
 
 static temperature_sensor_handle_t s_sensor;
-static SemaphoreHandle_t s_lock;            // guards s_sensor reads and the ring
+static SemaphoreHandle_t s_lock;            // guards s_sensor reads, s_latest and the ring
 static float *s_ring;                       // HISTORY_LEN samples, oldest at s_head when full
 static size_t s_head;                       // next write position
 static size_t s_count;
+static float s_latest;                      // last interval mean, valid when s_count > 0
+
+// In double, so cJSON prints 41.3 rather than 41.29999923706055.
+static double round1(float c)
+{
+    return round(c * 10.0) / 10.0;
+}
 
 esp_err_t temp_get_celsius(float *out)
 {
     if (!s_sensor || !s_lock) {
         return ESP_ERR_INVALID_STATE;
     }
+    esp_err_t err = ESP_OK;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    esp_err_t err = temperature_sensor_get_celsius(s_sensor, out);
+    if (s_count > 0) {
+        *out = s_latest;
+    } else {  // first 2 s after boot: no mean yet
+        err = temperature_sensor_get_celsius(s_sensor, out);
+    }
     xSemaphoreGive(s_lock);
+    if (err == ESP_OK) {
+        *out = (float)round1(*out);
+    }
     return err;
-}
-
-// In double, so cJSON prints 41.3 rather than 41.29999923706055.
-static double round1(float c)
-{
-    return round(c * 10.0) / 10.0;
 }
 
 // i-th sample, oldest first. Caller holds s_lock.
@@ -53,25 +66,40 @@ static float ring_at(size_t i)
 
 static void temp_task(void *arg)
 {
+    TickType_t wake = xTaskGetTickCount();
+    float sum = 0;
+    int reads = 0, n = 0;
     for (;;) {
         float c;
         xSemaphoreTake(s_lock, portMAX_DELAY);
-        esp_err_t err = temperature_sensor_get_celsius(s_sensor, &c);
-        if (err == ESP_OK) {
-            s_ring[s_head] = c;
-            s_head = (s_head + 1) % HISTORY_LEN;
-            if (s_count < HISTORY_LEN) {
-                s_count++;
-            }
+        if (temperature_sensor_get_celsius(s_sensor, &c) == ESP_OK) {
+            sum += c;
+            n++;
         }
         xSemaphoreGive(s_lock);
 
-        if (err == ESP_OK && web_ws_client_count() > 0) {
-            cJSON *d = cJSON_CreateObject();
-            cJSON_AddNumberToObject(d, "c", round1(c));
-            web_ws_broadcast("temp", d);
+        if (++reads == READS_PER_SAMPLE) {
+            if (n > 0) {
+                float mean = (float)round1(sum / n);
+                xSemaphoreTake(s_lock, portMAX_DELAY);
+                s_latest = mean;
+                s_ring[s_head] = mean;
+                s_head = (s_head + 1) % HISTORY_LEN;
+                if (s_count < HISTORY_LEN) {
+                    s_count++;
+                }
+                xSemaphoreGive(s_lock);
+
+                if (web_ws_client_count() > 0) {
+                    cJSON *d = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(d, "c", round1(mean));
+                    web_ws_broadcast("temp", d);
+                }
+            }
+            sum = 0;
+            reads = n = 0;
         }
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_S * 1000));
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(READ_MS));
     }
 }
 
@@ -102,7 +130,8 @@ static esp_err_t temp_init(void)
     if (xTaskCreate(temp_task, "temp", 3072, NULL, 2, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "sampling every %d s, %d samples of history", INTERVAL_S, HISTORY_LEN);
+    ESP_LOGI(TAG, "mean of %d reads every %d s, %d samples of history", READS_PER_SAMPLE, INTERVAL_S,
+             HISTORY_LEN);
     return ESP_OK;
 }
 

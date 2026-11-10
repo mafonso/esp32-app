@@ -19,6 +19,7 @@ const CSS = `
 
 const W = 300, H = 120;            // SVG user units; stretched to the card width
 const MAX_SAMPLES = 300;           // 10 minutes at 2 s, matching temp.c
+const MIN_SPAN = 4;                // °C, smallest Y range shown
 
 function injectStyle() {
   if (document.getElementById('temp-css')) return;
@@ -65,9 +66,11 @@ export default function (App) {
         $('now').textContent = cur.toFixed(1);
         $('mm').textContent = `min ${lo.toFixed(1)} · max ${hi.toFixed(1)} °C`;
 
-        // Y range with ~15% padding, and at least 1 °C so noise doesn't look like a cliff.
-        const pad = Math.max((hi - lo) * 0.15, (1 - (hi - lo)) / 2, 0.1);
-        const y0 = lo - pad, y1 = hi + pad;
+        // Y range: data plus ~15% padding, but at least MIN_SPAN centred on the
+        // data, so half-degree noise doesn't fill the whole height.
+        const mid = (lo + hi) / 2;
+        const half = Math.max(((hi - lo) * 1.3) / 2, MIN_SPAN / 2);
+        const y0 = mid - half, y1 = mid + half;
         $('ytop').textContent = y1.toFixed(1);
         $('ybot').textContent = y0.toFixed(1);
         if (n < 2) { $('line').setAttribute('d', ''); $('area').setAttribute('d', ''); return; }
