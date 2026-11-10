@@ -11,11 +11,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # ESP-IDF picks up version.txt as the app version (PROJECT_VER).
+      # The checkout only has the commit; fetch the annotated tag for its message.
       - name: Set firmware version
-        run: echo "${GITHUB_REF_NAME}" > version.txt
+        run: |
+          echo "${GITHUB_REF_NAME}" > version.txt
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
 
       - name: Build
         uses: espressif/esp-idf-ci-action@v1
