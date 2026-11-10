@@ -8,13 +8,14 @@ GitHub-Releases OTA, USB console. Also the boilerplate for new projects, so keep
 ```sh
 . ~/esp/esp-idf/export.sh
 idf.py build
-idf.py -p /dev/cu.usbmodem* flash monitor     # Ctrl-] quits monitor
+idf.py flash monitor     # Ctrl-] quits monitor
 ```
 
 - If a build dir predates a change to `sdkconfig.defaults`, delete `sdkconfig` (and rerun the build) so the
   new defaults apply. Missing WebSocket support stops the build with an `#error` saying exactly this.
-- The dev board is **esp-dev**: `http://esp-dev.local/` on the IoT VLAN, USB port `/dev/cu.usbmodem*`.
-  There is one board: agents working in parallel build only and never flash.
+- The dev board is **esp-dev** (`http://esp-dev.local/`, IoT VLAN). It is plugged into the
+  **esp-devbox** container, the only machine that flashes it; see below. There is one board: agents
+  working in parallel build only and never flash.
 - If after flashing the board sits in the ROM bootloader (no app output), reset it into the app:
   `esptool --port <port> --before no-reset --after watchdog-reset chip-id`
 - Never use GPIO19/20, TinyUSB or deep sleep in dev firmware: they break USB-Serial/JTAG, which the
@@ -23,6 +24,25 @@ idf.py -p /dev/cu.usbmodem* flash monitor     # Ctrl-] quits monitor
   (copy `sdkconfig.secrets.example`). Never put them in `sdkconfig.defaults` or source.
 - CI (`.github/workflows/build.yml`) builds every PR and push to `main`. Builds must have no
   warnings from our sources.
+
+## Dev box (esp-devbox)
+
+esp-devbox is a Proxmox LXC container with ESP-IDF v6.1, Claude Code, `gh` and this repo at
+`~/esp32-app`; esp-dev's native USB port is plugged into its Proxmox host. Log in as `mafonso`.
+
+- The board is at **`/dev/esp-dev/board`**, a link to its current `ttyACM0`/`ttyACM1`: the board
+  re-enumerates on some resets and alternates between the two, and a host udev rule keeps the link
+  current. Never hard-code `/dev/ttyACM*`. How it works: [docs/proxmox-devbox.md](docs/proxmox-devbox.md).
+- `ESPPORT` (so `idf.py flash` needs no `-p`) and `ESPTOOL_CFGFILE` are exported at the top of
+  `~/.bashrc`, so they also apply to `ssh esp-devbox '<cmd>'`. Plain `esptool` ignores `ESPPORT`:
+  pass `--port /dev/esp-dev/board`.
+- `~/.config/esptool/esptool.cfg` sets esptool's `custom_reset_sequence` to the USB-Serial/JTAG one.
+  Inside the container esptool can't recognise the port type, and its default UART sequence fails with
+  "Wrong boot mode detected (0x8)".
+- The board reports over Wi-Fi too: `curl http://esp-dev.local/api/info`, and Settings → Logs in a
+  browser (or `/api/logs`) when nobody is on the USB console.
+- `sdkconfig.secrets` is not in the clone. The board keeps its Wi-Fi credentials in NVS across
+  flashes, so it isn't needed unless the flash is erased.
 
 ## Releasing
 
