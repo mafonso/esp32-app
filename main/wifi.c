@@ -65,10 +65,12 @@ esp_err_t wifi_start(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     s_netif = esp_netif_create_default_wifi_sta();
 
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(s_hostname, sizeof(s_hostname), "%s-%02x%02x%02x",
-             CONFIG_APP_HOSTNAME_PREFIX, mac[3], mac[4], mac[5]);
+    if (settings_get_name(s_hostname) != ESP_OK) {
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        snprintf(s_hostname, sizeof(s_hostname), "%s-%02x%02x%02x",
+                 CONFIG_APP_HOSTNAME_PREFIX, mac[3], mac[4], mac[5]);
+    }
     esp_netif_set_hostname(s_netif, s_hostname);
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();

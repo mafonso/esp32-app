@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "esp_console.h"
 #include "esp_wifi.h"
 #include "esp_app_desc.h"
@@ -21,6 +22,7 @@ static void print_menu(void)
            "  status                 board, firmware and network info\n"
            "  scan                   list nearby Wi-Fi networks\n"
            "  wifi <ssid> [password] save Wi-Fi credentials and reconnect\n"
+           "  name [hostname]        set the DHCP/mDNS name ('name -' resets it)\n"
            "  ota check              check GitHub for a newer release\n"
            "  ota update             install the release found by 'ota check'\n"
            "  reboot                 restart the board\n"
@@ -90,6 +92,42 @@ static int cmd_wifi(int argc, char **argv)
     return 0;
 }
 
+static bool valid_hostname(const char *n)
+{
+    size_t len = strlen(n);
+    if (len == 0 || len >= SETTINGS_NAME_MAX || n[0] == '-' || n[len - 1] == '-') {
+        return false;
+    }
+    for (const char *c = n; *c; c++) {
+        if (!isalnum((unsigned char)*c) && *c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int cmd_name(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("hostname: %s\nusage: name <hostname> | name -\n", wifi_hostname());
+        return 0;
+    }
+    const char *name = strcmp(argv[1], "-") == 0 ? "" : argv[1];
+    if (name[0] && !valid_hostname(name)) {
+        printf("use letters, digits and '-', up to %d characters\n", SETTINGS_NAME_MAX - 1);
+        return 1;
+    }
+    esp_err_t err = settings_set_name(name);
+    if (err != ESP_OK) {
+        printf("could not save: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("saved, rebooting to apply\n");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_restart();
+    return 0;
+}
+
 static int cmd_ota(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "check") == 0) {
@@ -151,6 +189,7 @@ esp_err_t console_start(void)
         {.command = "status", .help = "Board, firmware and network info", .func = cmd_status},
         {.command = "scan", .help = "List nearby Wi-Fi networks", .func = cmd_scan},
         {.command = "wifi", .help = "Save Wi-Fi credentials and reconnect", .hint = "<ssid> [password]", .func = cmd_wifi},
+        {.command = "name", .help = "Set the DHCP/mDNS hostname ('-' resets it)", .hint = "[hostname]", .func = cmd_name},
         {.command = "ota", .help = "Check for or install a GitHub release", .hint = "check|update", .func = cmd_ota},
         {.command = "reboot", .help = "Restart the board", .func = cmd_reboot},
     };

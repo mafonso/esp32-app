@@ -2,7 +2,7 @@
 
 ESP32-S3 (N16R8) firmware that serves a status page and updates itself over Wi-Fi from this repo's GitHub Releases.
 
-- **Web page** at `http://esp32-xxxxxx.local/` (the last 3 bytes of the board's MAC address): firmware version, board stats, Wi-Fi, and **Check for updates / Install**
+- **Web page** at `http://esp32-xxxxxx.local/` (the last 3 bytes of the board's MAC address, or the name set with `name`): firmware version, board stats, Wi-Fi, and **Check for updates / Install**
 - **OTA** from GitHub Releases, with automatic rollback: a new image that can't reach Wi-Fi within 60 s is reverted on the next boot
 - **USB setup menu**: connect to the native USB port with any serial terminal to get an `esp32>` prompt
 
@@ -22,6 +22,7 @@ Release builds made in CI don't contain it, and OTA updates keep the credentials
 ```
 idf.py monitor        # or: screen /dev/cu.usbmodem* 115200
 esp32> wifi IoT mypassword
+esp32> name esp-dev       # DHCP/mDNS hostname, kept across OTA ('name -' resets)
 esp32> status
 esp32> ota check
 esp32> ota update

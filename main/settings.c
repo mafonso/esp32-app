@@ -65,3 +65,38 @@ esp_err_t settings_set_wifi(const char *ssid, const char *pass)
     nvs_close(h);
     return err;
 }
+
+esp_err_t settings_get_name(char name[SETTINGS_NAME_MAX])
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READONLY, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    size_t len = SETTINGS_NAME_MAX;
+    err = nvs_get_str(h, "name", name, &len);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t settings_set_name(const char *name)
+{
+    if (strlen(name) >= SETTINGS_NAME_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    // An empty name clears the override and restores the MAC-based default.
+    err = name[0] ? nvs_set_str(h, "name", name) : nvs_erase_key(h, "name");
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err;
+}
