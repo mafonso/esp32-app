@@ -67,7 +67,9 @@ export default function (App) {
           const pct = bench > 0 ? (100 * p.delta) / bench : 0;
           const frac = Math.min(Math.max(pct / (thresh * FULL_SCALE), 0), 1);
           r.fill.style.width = `${(frac * 100).toFixed(1)}%`;
-          r.val.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+          // Round first so tiny negatives show as 0.0%, not -0.0%.
+          const shown = Math.round(pct * 10) / 10 || 0;
+          r.val.textContent = `${shown > 0 ? '+' : ''}${shown.toFixed(1)}%`;
           r.row.classList.toggle('on', !!p.touched);
         }
       });
