@@ -40,7 +40,7 @@ reach Wi-Fi within 60 s rolls back on its own.
 | Path | |
 |---|---|
 | `main/app_main.c` | boot order: settings → Wi-Fi → features init → web → feature routes → console → OTA confirm |
-| `main/core/` | shared infrastructure: `wifi`, `settings` (NVS), `ota`, `web` (HTTP + static files), `web_ws` (WebSocket hub), `console_cmds`, `app_events` |
+| `main/core/` | shared infrastructure: `wifi`, `settings` (NVS), `auth` (admin password), `logbuf` (log ring buffer), `ota`, `web` (HTTP + static files), `web_settings` (settings/admin API), `web_ws` (WebSocket hub), `console_cmds`, `app_events` |
 | `main/features/` | one `.c` per feature, plus the registry `features.c` |
 | `main/web/` | frontend, embedded as-is: `index.html`, `app.css`, `app.js` (shell), `settings.js` |
 | `main/web/features/` | one ES module per feature UI, loaded automatically |
@@ -76,7 +76,8 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    };
    web_register_routes(routes, sizeof(routes) / sizeof(routes[0]));
    ```
-   In POST handlers: `if (!web_check_csrf(req)) return ESP_OK;`, then
+   In POST handlers: `if (!web_check_csrf(req)) return ESP_OK;` (add `|| !web_require_admin(req)` from
+   `auth.h` for anything that changes configuration), then
    `cJSON *body = web_read_json(req, 512); if (!body) return ESP_OK;`, and reply with
    `web_send_json(req, json)` (takes ownership).
 4. **Live data** to browsers: `web_ws_broadcast("<name>", cJSON_data)` (takes ownership, any task,
@@ -87,6 +88,8 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
 6. **Events between features**: add an ID to `app_event_id_t` in `core/app_events.h`, post with
    `app_event_post(APP_EVENT_X, &data, sizeof(data))`, subscribe with
    `esp_event_handler_register(APP_EVENT, APP_EVENT_X, handler, NULL)` in init.
+   Example: `button.c` posts `APP_EVENT_BUTTON` and `led.c` cycles its mode on it; neither calls
+   the other.
 7. **UI** (optional): `main/web/features/<name>.js` is picked up by the build and loaded by the page:
    ```js
    export default function (App) {
@@ -99,7 +102,7 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    }
    ```
    `App.api(path, {method, body})` does fetch with the CSRF header and JSON in/out, throwing
-   `Error(text)` on HTTP errors. Cards are mounted once and never unmounted. Use the CSS classes in
+   `Error(text)` with `.status` on HTTP errors (401 = admin password needed; the browser prompts). Cards are mounted once and never unmounted. Use the CSS classes in
    `app.css` (`card`, `row`, `msg`, `dl`, `button.primary`, `meter`) and its colour variables.
 8. **Settings** (optional): the main page is for using the board; configuration goes on the
    Settings page (cog icon), which has Back/Close and a Save/Cancel bar. Add a section from the

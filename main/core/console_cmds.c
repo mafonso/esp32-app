@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include "esp_console.h"
 #include "esp_wifi.h"
 #include "esp_app_desc.h"
@@ -11,6 +10,7 @@
 #include "cJSON.h"
 #include "settings.h"
 #include "wifi.h"
+#include "auth.h"
 #include "ota.h"
 #include "web.h"
 #include "console_cmds.h"
@@ -24,6 +24,7 @@ static void print_menu(void)
            "  scan                   list nearby Wi-Fi networks\n"
            "  wifi <ssid> [password] save Wi-Fi credentials and reconnect\n"
            "  name [hostname]        set the DHCP/mDNS name ('name -' resets it)\n"
+           "  passwd <password>      set the web admin password ('passwd -' removes it)\n"
            "  ota check              check GitHub for a newer release\n"
            "  ota update             install the release found by 'ota check'\n"
            "  reboot                 restart the board\n"
@@ -93,20 +94,6 @@ static int cmd_wifi(int argc, char **argv)
     return 0;
 }
 
-static bool valid_hostname(const char *n)
-{
-    size_t len = strlen(n);
-    if (len == 0 || len >= SETTINGS_NAME_MAX || n[0] == '-' || n[len - 1] == '-') {
-        return false;
-    }
-    for (const char *c = n; *c; c++) {
-        if (!isalnum((unsigned char)*c) && *c != '-') {
-            return false;
-        }
-    }
-    return true;
-}
-
 static int cmd_name(int argc, char **argv)
 {
     if (argc < 2) {
@@ -114,7 +101,7 @@ static int cmd_name(int argc, char **argv)
         return 0;
     }
     const char *name = strcmp(argv[1], "-") == 0 ? "" : argv[1];
-    if (name[0] && !valid_hostname(name)) {
+    if (name[0] && !settings_valid_hostname(name)) {
         printf("use letters, digits and '-', up to %d characters\n", SETTINGS_NAME_MAX - 1);
         return 1;
     }
@@ -126,6 +113,27 @@ static int cmd_name(int argc, char **argv)
     printf("saved, rebooting to apply\n");
     vTaskDelay(pdMS_TO_TICKS(200));
     esp_restart();
+    return 0;
+}
+
+static int cmd_passwd(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("admin password: %s\nusage: passwd <password> | passwd -\n", auth_enabled() ? "set" : "not set");
+        return 0;
+    }
+    const char *pw = strcmp(argv[1], "-") == 0 ? "" : argv[1];
+    if (pw[0] && (strlen(pw) < 4 || strlen(pw) > AUTH_PASS_MAX)) {
+        printf("use 4-%d characters\n", AUTH_PASS_MAX);
+        return 1;
+    }
+    esp_err_t err = auth_set_password(pw);
+    if (err != ESP_OK) {
+        printf("could not save: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf(pw[0] ? "saved; the web UI now asks for user 'admin' and this password\n"
+                 : "removed; the web UI is open again\n");
     return 0;
 }
 
@@ -191,6 +199,7 @@ esp_err_t console_start(void)
         {.command = "scan", .help = "List nearby Wi-Fi networks", .func = cmd_scan},
         {.command = "wifi", .help = "Save Wi-Fi credentials and reconnect", .hint = "<ssid> [password]", .func = cmd_wifi},
         {.command = "name", .help = "Set the DHCP/mDNS hostname ('-' resets it)", .hint = "[hostname]", .func = cmd_name},
+        {.command = "passwd", .help = "Set the web admin password ('-' removes it)", .hint = "<password>", .func = cmd_passwd},
         {.command = "ota", .help = "Check for or install a GitHub release", .hint = "check|update", .func = cmd_ota},
         {.command = "reboot", .help = "Restart the board", .func = cmd_reboot},
     };

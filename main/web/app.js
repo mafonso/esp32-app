@@ -80,7 +80,11 @@ export const App = {
     const isJson = (r.headers.get('Content-Type') || '').includes('json');
     const data = isJson ? await r.json() : await r.text();
     if (!r.ok) {
-      const err = new Error(typeof data === 'string' && data ? data : `HTTP ${r.status}`);
+      // 401: the browser already showed its sign-in prompt (WWW-Authenticate) and the
+      // user cancelled it or got the password wrong; the next request prompts again.
+      const text = r.status === 401 ? 'Admin password required (user: admin)'
+        : typeof data === 'string' && data ? data : `HTTP ${r.status}`;
+      const err = new Error(text);
       err.status = r.status;
       throw err;
     }

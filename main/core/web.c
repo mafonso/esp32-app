@@ -18,6 +18,7 @@
 #include "wifi.h"
 #include "ota.h"
 #include "temp.h"
+#include "auth.h"
 #include "web.h"
 #include "web_assets.h"
 
@@ -239,7 +240,7 @@ static esp_err_t ota_status_get(httpd_req_t *req)
 
 static esp_err_t ota_check_post(httpd_req_t *req)
 {
-    if (!web_check_csrf(req)) {
+    if (!web_check_csrf(req) || !web_require_admin(req)) {
         return ESP_OK;
     }
     ota_check();
@@ -248,7 +249,7 @@ static esp_err_t ota_check_post(httpd_req_t *req)
 
 static esp_err_t ota_update_post(httpd_req_t *req)
 {
-    if (!web_check_csrf(req)) {
+    if (!web_check_csrf(req) || !web_require_admin(req)) {
         return ESP_OK;
     }
     if (ota_start_update() != ESP_OK) {
@@ -264,13 +265,18 @@ static void reboot_task(void *arg)
     esp_restart();
 }
 
+void web_reboot_soon(void)
+{
+    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
+}
+
 static esp_err_t reboot_post(httpd_req_t *req)
 {
-    if (!web_check_csrf(req)) {
+    if (!web_check_csrf(req) || !web_require_admin(req)) {
         return ESP_OK;
     }
     httpd_resp_sendstr(req, "{\"ok\":true}");
-    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
+    web_reboot_soon();
     return ESP_OK;
 }
 
@@ -301,6 +307,9 @@ esp_err_t web_start(void)
     }
     ESP_ERROR_CHECK(web_ws_init(s_server));
     httpd_register_uri_handler(s_server, &s_static_route);
+    if (web_settings_init() != ESP_OK) {
+        ESP_LOGE(TAG, "settings routes failed");
+    }
     ESP_LOGI(TAG, "web server started on port %d", cfg.server_port);
     return ESP_OK;
 }

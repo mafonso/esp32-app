@@ -66,3 +66,17 @@ button:disabled { opacity: .5; cursor: default; }
   max-width: 720px; margin: 16px auto 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line);
 }
 .savebar .msg { flex: 1; margin: 0; }
+
+/* Form fields */
+label { display: block; margin-top: 12px; color: var(--muted); font-size: 13px; }
+label > input, label > select, label > .inrow { margin-top: 4px; }
+input, select {
+  font: inherit; font-size: 15px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0;
+}
+select { width: auto; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+input:disabled, select:disabled { opacity: .6; }
+.inrow { display: flex; gap: 8px; align-items: center; }
+.inrow > input { flex: 1; }
+.hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
