@@ -1,8 +1,10 @@
 # esp32-app
 
-ESP32-S3 (N16R8) firmware that serves a status page and updates itself over Wi-Fi from this repo's GitHub Releases.
+ESP32-S3 (N16R8) firmware with a web playground for the board, a settings page, and updates over Wi-Fi from this repo's GitHub Releases.
+It is also a boilerplate: features are self-contained files (see [CLAUDE.md](CLAUDE.md#how-to-add-a-feature)).
 
-- **Web page** at `http://esp32-xxxxxx.local/` (the last 3 bytes of the board's MAC address, or the name set with `name`): firmware version, board stats, Wi-Fi, and **Check for updates / Install**
+- **Web UI** at `http://esp32-xxxxxx.local/` (the last 3 bytes of the board's MAC address, or the name set with `name`):
+  a playground of live feature cards, and **Settings** (cog icon) with firmware version, board stats, Wi-Fi, and **Check for updates / Install**
 - **OTA** from GitHub Releases, with automatic rollback: a new image that can't reach Wi-Fi within 60 s is reverted on the next boot
 - **USB setup menu**: connect to the native USB port with any serial terminal to get an `esp32>` prompt
 
@@ -43,6 +45,7 @@ Boards read `releases/latest/download/version.json`, and install when you click 
 | Method | Path | |
 |---|---|---|
 | GET | `/api/info` | firmware, board and Wi-Fi stats |
+| GET | `/api/sysinfo` | board stats only (example feature) |
 | GET | `/api/ota` | OTA state and progress |
 | POST | `/api/ota/check` | fetch the latest release manifest |
 | POST | `/api/ota/update` | install the release found by the last check |
@@ -50,12 +53,17 @@ Boards read `releases/latest/download/version.json`, and install when you click 
 
 POST requests must send an `X-Requested-With` header (any value).
 
+`/ws` is a WebSocket carrying JSON messages `{"t": topic, "d": data}` both ways; e.g. topic `sysinfo` streams board stats every 2 s.
+`/features.json` lists the feature UI modules; every other GET serves a file from `main/web/`.
+
 ## Layout
 
 | | |
 |---|---|
 | `partitions.csv` | two 6 MB OTA slots, NVS, 3.9 MB `storage` |
-| `main/ota.c` | manifest check, HTTPS OTA, rollback confirmation |
-| `main/web.c`, `main/index.html` | HTTP server and status page |
-| `main/console_cmds.c` | USB setup menu |
-| `main/wifi.c`, `main/settings.c` | station and mDNS, NVS credentials |
+| `main/app_main.c` | boot sequence |
+| `main/core/` | Wi-Fi + mDNS, NVS settings, OTA, HTTP server and WebSocket hub, USB console, app events |
+| `main/features/` | one file per feature, registered in `features.c` (`sysinfo.c` is the example) |
+| `main/web/` | frontend shell (`index.html`, `app.js`, `app.css`) and the built-in Settings sections (`settings.js`) |
+| `main/web/features/` | one ES module per feature card, listed automatically in `/features.json` |
+| `main/web_assets.cmake` | embeds everything under `main/web/` into the firmware |

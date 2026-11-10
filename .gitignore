@@ -6,3 +6,4 @@ sdkconfig.secrets
 dependencies.lock
 version.txt
 .DS_Store
+.claude/
