@@ -9,6 +9,7 @@ static const char *TAG = "features";
 // `const feature_t name_feature` defined in features/name.c.
 #define FEATURE_LIST(X) \
     X(sysinfo)          \
+    X(temp)             \
     /* end of list */
 
 #define DECLARE(name) extern const feature_t name##_feature;
