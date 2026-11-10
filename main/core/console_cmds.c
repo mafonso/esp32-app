@@ -14,6 +14,7 @@
 #include "ota.h"
 #include "web.h"
 #include "console_cmds.h"
+#include "features.h"
 
 static void print_menu(void)
 {
@@ -26,7 +27,7 @@ static void print_menu(void)
            "  ota check              check GitHub for a newer release\n"
            "  ota update             install the release found by 'ota check'\n"
            "  reboot                 restart the board\n"
-           "  help                   full command list\n"
+           "  help                   full command list, including feature commands\n"
            "\n",
            esp_app_get_description()->project_name, esp_app_get_description()->version);
 }
@@ -196,6 +197,7 @@ esp_err_t console_start(void)
     for (int i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
         esp_console_cmd_register(&cmds[i]);
     }
+    features_register_console();
     esp_console_register_help_command();
 
     print_menu();

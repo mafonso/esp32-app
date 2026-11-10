@@ -19,12 +19,19 @@
 #include "wifi.h"
 #include "ota.h"
 #include "web.h"
+#include "web_assets.h"
 
 static const char *TAG = "web";
 
-extern const char index_html_start[] asm("_binary_index_html_start");
-extern const char index_html_end[] asm("_binary_index_html_end");
+#ifndef CONFIG_HTTPD_WS_SUPPORT
+#error "CONFIG_HTTPD_WS_SUPPORT is off: delete sdkconfig so sdkconfig.defaults applies, then rebuild"
+#endif
 
+// Sockets for browsers (page loads plus one WebSocket per tab); LWIP_MAX_SOCKETS
+// in sdkconfig.defaults must be at least this + 3.
+#define WEB_MAX_SOCKETS 12
+
+static httpd_handle_t s_server;
 static temperature_sensor_handle_t s_temp;
 
 static const char *reset_reason_name(esp_reset_reason_t r)
@@ -114,7 +121,7 @@ static cJSON *ota_json(void)
     return o;
 }
 
-static esp_err_t send_json(httpd_req_t *req, cJSON *json)
+esp_err_t web_send_json(httpd_req_t *req, cJSON *json)
 {
     char *body = cJSON_PrintUnformatted(json);
     cJSON_Delete(json);
@@ -127,7 +134,7 @@ static esp_err_t send_json(httpd_req_t *req, cJSON *json)
 
 // State-changing endpoints require a custom header, which cross-site pages
 // cannot send without a CORS preflight that this server never approves.
-static bool check_csrf(httpd_req_t *req)
+bool web_check_csrf(httpd_req_t *req)
 {
     if (httpd_req_get_hdr_value_len(req, "X-Requested-With") > 0) {
         return true;
@@ -136,41 +143,120 @@ static bool check_csrf(httpd_req_t *req)
     return false;
 }
 
-static esp_err_t index_get(httpd_req_t *req)
+cJSON *web_read_json(httpd_req_t *req, size_t max_len)
 {
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, index_html_start, index_html_end - index_html_start);
+    if (req->content_len == 0 || req->content_len > max_len) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "expected a JSON body");
+        return NULL;
+    }
+    char *buf = malloc(req->content_len + 1);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+        return NULL;
+    }
+    size_t got = 0;
+    while (got < req->content_len) {
+        int n = httpd_req_recv(req, buf + got, req->content_len - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0) {
+            free(buf);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body read failed");
+            return NULL;
+        }
+        got += n;
+    }
+    buf[got] = '\0';
+    cJSON *json = cJSON_Parse(buf);
+    free(buf);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid JSON");
+    }
+    return json;
+}
+
+// Every file under main/web/ is embedded at build time (see web_assets.cmake).
+static esp_err_t static_get(httpd_req_t *req)
+{
+    char path[128];
+    size_t len = strcspn(req->uri, "?#");
+    if (len >= sizeof(path)) {
+        len = 0;  // too long to be one of ours: 404
+    }
+    memcpy(path, req->uri, len);
+    path[len] = '\0';
+    if (strcmp(path, "/") == 0) {
+        strcpy(path, "/index.html");
+    }
+    for (size_t i = 0; i < web_assets_count; i++) {
+        const web_asset_t *a = &web_assets[i];
+        if (strcmp(a->path, path) == 0) {
+            httpd_resp_set_type(req, a->mime);
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+            return httpd_resp_send(req, (const char *)a->start, a->end - a->start);
+        }
+    }
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+    return ESP_OK;
+}
+
+static const httpd_uri_t s_static_route = {.uri = "/*", .method = HTTP_GET, .handler = static_get};
+
+httpd_handle_t web_server(void)
+{
+    return s_server;
+}
+
+esp_err_t web_register_routes(const httpd_uri_t *routes, size_t n)
+{
+    if (!s_server) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // httpd matches in registration order and rejects URIs an existing wildcard
+    // already covers, so take the static wildcard out and put it back last.
+    httpd_unregister_uri_handler(s_server, s_static_route.uri, s_static_route.method);
+    esp_err_t ret = ESP_OK;
+    for (size_t i = 0; i < n; i++) {
+        esp_err_t err = httpd_register_uri_handler(s_server, &routes[i]);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "route %s: %s", routes[i].uri, esp_err_to_name(err));
+            ret = err;
+        }
+    }
+    httpd_register_uri_handler(s_server, &s_static_route);
+    return ret;
 }
 
 static esp_err_t info_get(httpd_req_t *req)
 {
-    return send_json(req, web_info_json());
+    return web_send_json(req, web_info_json());
 }
 
 static esp_err_t ota_status_get(httpd_req_t *req)
 {
-    return send_json(req, ota_json());
+    return web_send_json(req, ota_json());
 }
 
 static esp_err_t ota_check_post(httpd_req_t *req)
 {
-    if (!check_csrf(req)) {
+    if (!web_check_csrf(req)) {
         return ESP_OK;
     }
     ota_check();
-    return send_json(req, ota_json());
+    return web_send_json(req, ota_json());
 }
 
 static esp_err_t ota_update_post(httpd_req_t *req)
 {
-    if (!check_csrf(req)) {
+    if (!web_check_csrf(req)) {
         return ESP_OK;
     }
     if (ota_start_update() != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "run a check first, or an update is already running");
         return ESP_OK;
     }
-    return send_json(req, ota_json());
+    return web_send_json(req, ota_json());
 }
 
 static void reboot_task(void *arg)
@@ -181,7 +267,7 @@ static void reboot_task(void *arg)
 
 static esp_err_t reboot_post(httpd_req_t *req)
 {
-    if (!check_csrf(req)) {
+    if (!web_check_csrf(req)) {
         return ESP_OK;
     }
     httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -199,14 +285,17 @@ esp_err_t web_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     // The OTA check does a TLS handshake inside the request handler.
     cfg.stack_size = 10240;
-    httpd_handle_t server;
-    esp_err_t err = httpd_start(&server, &cfg);
+    cfg.max_uri_handlers = 32;
+    cfg.max_open_sockets = WEB_MAX_SOCKETS;
+    // Reuse the oldest idle connection instead of refusing new ones.
+    cfg.lru_purge_enable = true;
+    cfg.uri_match_fn = httpd_uri_match_wildcard;
+    esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
         return err;
     }
 
     static const httpd_uri_t routes[] = {
-        {.uri = "/", .method = HTTP_GET, .handler = index_get},
         {.uri = "/api/info", .method = HTTP_GET, .handler = info_get},
         {.uri = "/api/ota", .method = HTTP_GET, .handler = ota_status_get},
         {.uri = "/api/ota/check", .method = HTTP_POST, .handler = ota_check_post},
@@ -214,8 +303,10 @@ esp_err_t web_start(void)
         {.uri = "/api/reboot", .method = HTTP_POST, .handler = reboot_post},
     };
     for (int i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
-        httpd_register_uri_handler(server, &routes[i]);
+        httpd_register_uri_handler(s_server, &routes[i]);
     }
+    ESP_ERROR_CHECK(web_ws_init(s_server));
+    httpd_register_uri_handler(s_server, &s_static_route);
     ESP_LOGI(TAG, "web server started on port %d", cfg.server_port);
     return ESP_OK;
 }
