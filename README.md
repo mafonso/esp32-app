@@ -82,3 +82,4 @@ OTA check and update are admin routes too.
 | `main/web/` | frontend shell (`index.html`, `app.js`, `app.css`) and the built-in Settings sections (`settings.js`) |
 | `main/web/features/` | one ES module per feature card, listed automatically in `/features.json` |
 | `main/web_assets.cmake` | embeds everything under `main/web/` into the firmware |
+| `docs/proxmox-devbox.md` | running the dev board from a Proxmox container (USB passthrough that survives resets) |
