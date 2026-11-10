@@ -1,0 +1,25 @@
+menu "App configuration"
+
+    config APP_WIFI_SSID
+        string "Default Wi-Fi SSID"
+        default "IoT"
+        help
+            Seeded into NVS on first boot if no network has been configured.
+
+    config APP_WIFI_PASSWORD
+        string "Default Wi-Fi password"
+        default ""
+        help
+            Set this in the git-ignored sdkconfig.secrets, never in sdkconfig.defaults.
+
+    config APP_OTA_MANIFEST_URL
+        string "OTA manifest URL"
+        default "https://github.com/mafonso/esp32-app/releases/latest/download/version.json"
+
+    config APP_HOSTNAME_PREFIX
+        string "Hostname prefix"
+        default "esp32"
+        help
+            The device hostname is <prefix>-<last 3 MAC bytes>, also advertised over mDNS.
+
+endmenu

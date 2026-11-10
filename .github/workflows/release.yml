@@ -1,0 +1,42 @@
+name: Release firmware
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ESP-IDF picks up version.txt as the app version (PROJECT_VER).
+      - name: Set firmware version
+        run: echo "${GITHUB_REF_NAME}" > version.txt
+
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+
+      - name: Prepare release assets
+        run: |
+          mkdir dist
+          cp build/esp32-app.bin dist/
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          notes=$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")
+          jq -n --arg v "${GITHUB_REF_NAME}" --arg u "${base}/esp32-app.bin" --arg n "${notes}" \
+            '{version: $v, url: $u, notes: $n}' > dist/version.json
+          cat dist/version.json
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/esp32-app.bin
+            dist/version.json
+          generate_release_notes: true
