@@ -22,8 +22,19 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 # WebSocket hub at /ws (core/web_ws.c). Existing build dirs: delete sdkconfig
 # so this applies, or the build stops with an #error.
 CONFIG_HTTPD_WS_SUPPORT=y
-# Room for 12 browser connections (web.c WEB_MAX_SOCKETS) + 3 httpd-internal + mDNS/OTA
-CONFIG_LWIP_MAX_SOCKETS=16
+# Room for 16 browser connections (web.c WEB_MAX_SOCKETS) + 3 httpd-internal + mDNS/OTA
+CONFIG_LWIP_MAX_SOCKETS=20
+# Connections waiting for accept() during a page load burst (default 6)
+CONFIG_LWIP_TCP_ACCEPTMBOX_SIZE=16
+# TCP PCBs, which also hold closed connections in TIME_WAIT (2 min) and FIN_WAIT. At the
+# default 16 they run out under a few browsers, and new connections are aborted
+# before accept ("error in accept (113)", ECONNABORTED).
+CONFIG_LWIP_MAX_ACTIVE_TCP=32
+# A whole response (largest page file is ~15 KB) fits in the send buffer, so the
+# single-threaded HTTP server hands it to TCP and moves on instead of waiting for
+# a slow client's ACKs. Wi-Fi/LWIP buffers go to PSRAM to keep internal RAM free.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
 # Full speed; the board is USB powered
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

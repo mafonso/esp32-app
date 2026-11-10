@@ -30,7 +30,10 @@ static const char *TAG = "web";
 
 // Sockets for browsers (page loads plus one WebSocket per tab); LWIP_MAX_SOCKETS
 // in sdkconfig.defaults must be at least this + 3.
-#define WEB_MAX_SOCKETS 12
+#define WEB_MAX_SOCKETS 16
+// The server is single-threaded: a stalled client blocks every other request for
+// up to this long (seconds) per send/recv.
+#define WEB_IO_TIMEOUT_S 3
 
 static httpd_handle_t s_server;
 
@@ -157,10 +160,7 @@ cJSON *web_read_json(httpd_req_t *req, size_t max_len)
     size_t got = 0;
     while (got < req->content_len) {
         int n = httpd_req_recv(req, buf + got, req->content_len - got);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
-        }
-        if (n <= 0) {
+        if (n <= 0) {  // including a timeout: retrying would stall the server for good
             free(buf);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body read failed");
             return NULL;
@@ -289,6 +289,9 @@ esp_err_t web_start(void)
     cfg.max_open_sockets = WEB_MAX_SOCKETS;
     // Reuse the oldest idle connection instead of refusing new ones.
     cfg.lru_purge_enable = true;
+    cfg.backlog_conn = 8;
+    cfg.send_wait_timeout = WEB_IO_TIMEOUT_S;
+    cfg.recv_wait_timeout = WEB_IO_TIMEOUT_S;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
