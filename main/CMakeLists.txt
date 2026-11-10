@@ -1,5 +1,5 @@
-idf_component_register(SRCS "app_main.c" "settings.c" "wifi.c" "ota.c" "web.c" "console_cmds.c"
-                       INCLUDE_DIRS "."
+idf_component_register(SRC_DIRS "." "core"
+                       INCLUDE_DIRS "." "core"
                        EMBED_TXTFILES "index.html"
                        REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_http_server esp_http_client
                                 esp_https_ota app_update esp_partition esp_psram spi_flash esp_timer
