@@ -12,12 +12,12 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_log.h"
-#include "driver/temperature_sensor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "cJSON.h"
 #include "wifi.h"
 #include "ota.h"
+#include "temp.h"
 #include "auth.h"
 #include "web.h"
 #include "web_assets.h"
@@ -33,7 +33,6 @@ static const char *TAG = "web";
 #define WEB_MAX_SOCKETS 12
 
 static httpd_handle_t s_server;
-static temperature_sensor_handle_t s_temp;
 
 static const char *reset_reason_name(esp_reset_reason_t r)
 {
@@ -90,7 +89,7 @@ cJSON *web_info_json(void)
     cJSON_AddStringToObject(board, "reset_reason", reset_reason_name(esp_reset_reason()));
     cJSON_AddStringToObject(board, "mac", mac_str);
     float celsius;
-    if (s_temp && temperature_sensor_get_celsius(s_temp, &celsius) == ESP_OK) {
+    if (temp_get_celsius(&celsius) == ESP_OK) {  // absent if the temp feature failed
         cJSON_AddNumberToObject(board, "temp_c", celsius);
     }
 
@@ -283,11 +282,6 @@ static esp_err_t reboot_post(httpd_req_t *req)
 
 esp_err_t web_start(void)
 {
-    temperature_sensor_config_t tcfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
-    if (temperature_sensor_install(&tcfg, &s_temp) == ESP_OK) {
-        temperature_sensor_enable(s_temp);
-    }
-
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     // The OTA check does a TLS handshake inside the request handler.
     cfg.stack_size = 10240;

@@ -11,6 +11,8 @@ static const char *TAG = "features";
     X(button)           \
     X(led)              \
     X(sysinfo)          \
+    X(temp)             \
+    X(touch)            \
     /* end of list */
 
 #define DECLARE(name) extern const feature_t name##_feature;
