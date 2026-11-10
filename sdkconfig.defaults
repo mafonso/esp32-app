@@ -24,3 +24,6 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_WS_SUPPORT=y
 # Room for 12 browser connections (web.c WEB_MAX_SOCKETS) + 3 httpd-internal + mDNS/OTA
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# Full speed; the board is USB powered
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

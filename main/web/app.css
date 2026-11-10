@@ -11,6 +11,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -20,15 +21,15 @@ body {
 /* Header */
 header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 20px; }
 h1 { font-size: 22px; margin: 0; }
-h1 a { color: inherit; text-decoration: none; }
 header .sub { flex: 1; }
+#hdr-settings { max-width: 720px; margin-left: auto; margin-right: auto; }
+#hdr-settings h1 { flex: 1; }
 nav { display: flex; gap: 4px; }
-nav a {
-  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px;
+nav a, button.icon {
+  display: grid; padding: 0; background: none; place-items: center; width: 36px; height: 36px; border-radius: 8px;
   color: var(--muted); border: 1px solid transparent;
 }
-nav a:hover { color: var(--text); }
-nav a.active { color: var(--text); background: var(--card); border-color: var(--line); }
+nav a:hover, button.icon:hover { color: var(--text); background: var(--card); border-color: var(--line); }
 nav svg { width: 20px; height: 20px; }
 
 /* Cards */
@@ -57,3 +58,11 @@ button:disabled { opacity: .5; cursor: default; }
 .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .meter { height: 4px; background: var(--line); border-radius: 2px; margin-top: 2px; overflow: hidden; }
 .meter > div { height: 100%; background: var(--accent); }
+
+/* Settings page: stacked sections and a Save/Cancel bar while anything is edited */
+.settings { display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+.savebar {
+  position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: flex-end;
+  max-width: 720px; margin: 16px auto 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line);
+}
+.savebar .msg { flex: 1; margin: 0; }

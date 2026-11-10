@@ -1,4 +1,5 @@
-// App shell: hash router, WebSocket client, fetch helper and the card registry.
+// App shell: main page of feature cards, a separate Settings page, WebSocket
+// client and fetch helper.
 //
 // Feature UIs live in /features/<name>.js (main/web/features/). The build lists
 // them in /features.json and the shell loads each with import(). A feature
@@ -21,13 +22,21 @@
 //   App.send(topic, data) -> bool      to web_ws_on() handlers; false if not connected
 //   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) on HTTP errors
 //   App.card({id, title, order, wide, mount})
+//   App.settings({id, title, order, mount(el, ctx), save, reset})
+//                                      a section on the Settings page. Editable sections
+//                                      call ctx.dirty(true) when edited; Save then awaits
+//                                      save() of every dirty section and closes the page
+//                                      (a throw keeps it open and shows the message);
+//                                      Cancel/close call reset(). Optional show()/hide()
+//                                      run when the Settings page opens/closes.
 //   App.connected, App.info (last /api/info), App.fmt (kb, mb, duration)
 
-import settingsView from '/settings.js';
+import coreSettings from '/settings.js';
 
 const $ = id => document.getElementById(id);
 const handlers = new Map();
 const cards = [];
+const sections = [];
 let ws = null;
 let retryMs = 1000;
 let cardsReady = false;
@@ -81,6 +90,11 @@ export const App = {
   card(def) {
     cards.push({ order: 100, wide: false, ...def });
     if (cardsReady) renderCards();
+  },
+
+  settings(def) {
+    sections.push({ order: 100, ...def });
+    renderSections();
   },
 
   fmt: {
@@ -140,9 +154,9 @@ function connect() {
 // Traffic keeps the server from recycling an idle socket; unknown topics are ignored.
 setInterval(() => App.send('ping'), 25000);
 
-// ---- Playground ----
+// ---- Main page ----
 
-const playground = {
+const mainPage = {
   mount(el) {
     el.innerHTML = '<div class="grid"></div>';
     this.grid = el.firstElementChild;
@@ -151,7 +165,7 @@ const playground = {
 };
 
 function renderCards() {
-  const grid = playground.grid;
+  const grid = mainPage.grid;
   if (!grid) return;
   cards.sort((a, b) => a.order - b.order || String(a.title).localeCompare(b.title));
   for (const c of cards) {
@@ -191,31 +205,128 @@ async function loadFeatures() {
   renderCards();
 }
 
-// ---- Router ----
+// ---- Settings page ----
 
-const views = {
-  '/': { nav: 'nav-home', view: playground },
-  '/settings': { nav: 'nav-settings', view: settingsView },
+const settingsPage = {
+  mount(el) {
+    el.innerHTML = '<div class="settings"></div>';
+    this.list = el.firstElementChild;
+    renderSections();
+  },
+  show() { sections.forEach(s => s.show?.()); },
+  hide() { sections.forEach(s => s.hide?.()); },
 };
 
-function route() {
-  const path = views[location.hash.slice(1)] ? location.hash.slice(1) : '/';
-  for (const [p, r] of Object.entries(views)) {
-    const active = p === path;
-    $(r.nav).classList.toggle('active', active);
-    if (active && !r.el) {
-      r.el = document.createElement('div');
-      $('view').appendChild(r.el);
-      r.view.mount(r.el, App);
+function renderSections() {
+  const list = settingsPage.list;
+  if (!list) return;
+  sections.sort((a, b) => a.order - b.order || String(a.title).localeCompare(b.title));
+  for (const s of sections) {
+    if (!s.el) {
+      s.el = document.createElement('section');
+      s.el.className = 'card';
+      s.el.innerHTML = '<h2></h2><div></div>';
+      s.el.firstElementChild.textContent = s.title;
+      s.isDirty = false;
+      const ctx = { App, dirty: (d = true) => { s.isDirty = d; updateSaveBar(); } };
+      try {
+        s.mount(s.el.lastElementChild, ctx);
+      } catch (e) {
+        console.error(`settings '${s.id}' failed`, e);
+        s.el.lastElementChild.className = 'msg err';
+        s.el.lastElementChild.textContent = `failed: ${e.message}`;
+      }
     }
-    if (!r.el) continue;
-    r.el.hidden = !active;
-    const hook = active ? r.view.show : r.view.hide;
-    if (hook) hook.call(r.view);
+    list.appendChild(s.el);
   }
 }
 
+const isDirty = () => sections.some(s => s.isDirty);
+
+function updateSaveBar(msg) {
+  $('savebar').hidden = !isDirty() || currentPath() !== '/settings';
+  $('savemsg').className = msg ? 'msg err' : 'msg';
+  $('savemsg').textContent = msg || 'Unsaved changes';
+}
+
+function resetSections() {
+  for (const s of sections.filter(s => s.isDirty)) {
+    try { s.reset?.(); } catch (e) { console.error(e); }
+    s.isDirty = false;
+  }
+  updateSaveBar();
+}
+
+// Leave Settings for the main page. Returns false if the user keeps editing.
+function closeSettings() {
+  if (isDirty() && !confirm('Discard unsaved changes?')) return false;
+  resetSections();
+  location.hash = '#/';
+  return true;
+}
+
+async function saveSettings() {
+  $('save').disabled = $('cancel').disabled = true;
+  try {
+    for (const s of sections.filter(s => s.isDirty)) {
+      await s.save?.();
+      s.isDirty = false;
+    }
+    updateSaveBar();
+    location.hash = '#/';
+  } catch (e) {
+    updateSaveBar(e.message || 'Save failed');
+  } finally {
+    $('save').disabled = $('cancel').disabled = false;
+  }
+}
+
+document.querySelectorAll('[data-close]').forEach(b => { b.onclick = closeSettings; });
+$('cancel').onclick = () => { resetSections(); location.hash = '#/'; };
+$('save').onclick = saveSettings;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && currentPath() === '/settings') closeSettings();
+});
+window.addEventListener('beforeunload', e => { if (isDirty()) e.preventDefault(); });
+
+// ---- Router ----
+
+const pages = { '/': mainPage, '/settings': settingsPage };
+const els = {};
+let shown = null;
+
+function currentPath() {
+  return pages[location.hash.slice(1)] ? location.hash.slice(1) : '/';
+}
+
+function route() {
+  const path = currentPath();
+  // Browser back from Settings with unsaved edits: confirm before leaving.
+  if (shown === '/settings' && path !== '/settings' && isDirty()) {
+    if (!confirm('Discard unsaved changes?')) { location.hash = '#/settings'; return; }
+    resetSections();
+  }
+  for (const [p, page] of Object.entries(pages)) {
+    const active = p === path;
+    if (active && !els[p]) {
+      els[p] = document.createElement('div');
+      $('view').appendChild(els[p]);
+      page.mount(els[p]);
+    }
+    if (!els[p]) continue;
+    els[p].hidden = !active;
+    if (p !== shown && active) page.show?.();
+    if (p === shown && !active) page.hide?.();
+  }
+  $('hdr-main').hidden = path === '/settings';
+  $('hdr-settings').hidden = path !== '/settings';
+  shown = path;
+  updateSaveBar();
+  window.scrollTo(0, 0);
+}
+
 window.addEventListener('hashchange', route);
+coreSettings(App);
 route();
 showHeader();
 refreshInfo();

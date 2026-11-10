@@ -1,8 +1,7 @@
-// Settings view: firmware/OTA, board, runtime and network cards.
-const html = `
-<div class="grid">
-  <section class="card wide">
-    <h2>Firmware</h2>
+// Built-in Settings sections: firmware/OTA, board, runtime and network.
+// They use the same App.settings() API as feature sections; all are read-only,
+// so none of them marks the page dirty.
+const firmwareHtml = `
     <p class="version" data-k="ver">–</p>
     <div class="sub" data-k="build">–</div>
     <div class="row">
@@ -11,48 +10,48 @@ const html = `
       <button data-k="reboot">Reboot</button>
     </div>
     <div class="bar" data-k="bar"><div></div></div>
-    <div class="msg" data-k="otamsg"></div>
-  </section>
+    <div class="msg" data-k="otamsg"></div>`;
 
-  <section class="card">
-    <h2>Board</h2>
+const boardHtml = `
     <dl>
       <dt>Chip</dt><dd data-k="chip">–</dd>
       <dt>CPU</dt><dd data-k="cpu">–</dd>
       <dt>Flash</dt><dd data-k="flash">–</dd>
       <dt>Temperature</dt><dd data-k="temp">–</dd>
       <dt>MAC</dt><dd data-k="mac">–</dd>
-    </dl>
-  </section>
+    </dl>`;
 
-  <section class="card">
-    <h2>Runtime</h2>
+const runtimeHtml = `
     <dl>
       <dt>Uptime</dt><dd data-k="uptime">–</dd>
       <dt>Last reset</dt><dd data-k="reset">–</dd>
       <dt>Heap free</dt><dd data-k="heap">–</dd>
       <dt>Heap low-water</dt><dd data-k="heapmin">–</dd>
       <dt>PSRAM free</dt><dd data-k="psram">–</dd>
-    </dl>
-  </section>
+    </dl>`;
 
-  <section class="card">
-    <h2>Network</h2>
+const networkHtml = `
     <dl>
       <dt>SSID</dt><dd data-k="ssid">–</dd>
       <dt>Signal</dt><dd data-k="rssi">–</dd>
       <dt>IP</dt><dd data-k="ip">–</dd>
       <dt>Hostname</dt><dd data-k="hostname">–</dd>
-    </dl>
-  </section>
-</div>`;
+    </dl>`;
 
 function signal(rssi) {
   const q = rssi >= -60 ? 'excellent' : rssi >= -70 ? 'good' : rssi >= -80 ? 'fair' : 'weak';
   return `${rssi} dBm (${q})`;
 }
 
-let $, App, timer;
+let App, timer;
+const els = {};
+const $ = k => els[k];
+
+// Collect the data-k elements of a section so refreshInfo() can fill them.
+function bind(el, html) {
+  el.innerHTML = html;
+  el.querySelectorAll('[data-k]').forEach(e => { els[e.dataset.k] = e; });
+}
 
 async function refreshInfo() {
   const { kb, mb, duration } = App.fmt;
@@ -137,43 +136,47 @@ async function waitForReboot() {
   }
 }
 
-export default {
-  mount(el, app) {
-    App = app;
-    el.innerHTML = html;
-    $ = k => el.querySelector(`[data-k="${k}"]`);
+function mountFirmware(el) {
+  bind(el, firmwareHtml);
 
-    $('check').onclick = async () => {
-      showOta({ state: 'checking' });
-      try { showOta(await App.api('/api/ota/check', { method: 'POST' })); }
-      catch (e) { showOta({ state: 'error', error: 'Request failed' }); }
-    };
+  $('check').onclick = async () => {
+    showOta({ state: 'checking' });
+    try { showOta(await App.api('/api/ota/check', { method: 'POST' })); }
+    catch (e) { showOta({ state: 'error', error: 'Request failed' }); }
+  };
 
-    $('install').onclick = async () => {
-      if (!confirm(`Install ${$('install').textContent.replace(/^\w+ /, '')} and reboot the board?`)) return;
-      try { showOta(await App.api('/api/ota/update', { method: 'POST' })); }
-      catch (e) { showOta({ state: 'error', error: e.message }); return; }
-      pollOta();
-    };
+  $('install').onclick = async () => {
+    if (!confirm(`Install ${$('install').textContent.replace(/^\w+ /, '')} and reboot the board?`)) return;
+    try { showOta(await App.api('/api/ota/update', { method: 'POST' })); }
+    catch (e) { showOta({ state: 'error', error: e.message }); return; }
+    pollOta();
+  };
 
-    $('reboot').onclick = async () => {
-      if (!confirm('Reboot the board?')) return;
-      try { await App.api('/api/reboot', { method: 'POST' }); } catch (e) { }
-      waitForReboot();
-    };
+  $('reboot').onclick = async () => {
+    if (!confirm('Reboot the board?')) return;
+    try { await App.api('/api/reboot', { method: 'POST' }); } catch (e) { }
+    waitForReboot();
+  };
 
-    App.api('/api/ota').then(o => { if (showOta(o) === 'downloading') pollOta(); }).catch(() => { });
-  },
+  App.api('/api/ota').then(o => { if (showOta(o) === 'downloading') pollOta(); }).catch(() => { });
+}
 
-  // Poll only while the view is visible.
-  show() {
-    clearInterval(timer);
-    refreshInfo();
-    timer = setInterval(refreshInfo, 3000);
-  },
-
-  hide() {
-    clearInterval(timer);
-    timer = null;
-  },
-};
+export default function (app) {
+  App = app;
+  App.settings({
+    id: 'firmware', title: 'Firmware', order: 10, mount: mountFirmware,
+    // Poll board stats only while the Settings page is open.
+    show() {
+      clearInterval(timer);
+      refreshInfo();
+      timer = setInterval(refreshInfo, 3000);
+    },
+    hide() {
+      clearInterval(timer);
+      timer = null;
+    },
+  });
+  App.settings({ id: 'network', title: 'Network', order: 20, mount: el => bind(el, networkHtml) });
+  App.settings({ id: 'board', title: 'Board', order: 30, mount: el => bind(el, boardHtml) });
+  App.settings({ id: 'runtime', title: 'Runtime', order: 40, mount: el => bind(el, runtimeHtml) });
+}

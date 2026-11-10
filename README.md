@@ -64,6 +64,6 @@ POST requests must send an `X-Requested-With` header (any value).
 | `main/app_main.c` | boot sequence |
 | `main/core/` | Wi-Fi + mDNS, NVS settings, OTA, HTTP server and WebSocket hub, USB console, app events |
 | `main/features/` | one file per feature, registered in `features.c` (`sysinfo.c` is the example) |
-| `main/web/` | frontend shell (`index.html`, `app.js`, `app.css`) and the settings view |
+| `main/web/` | frontend shell (`index.html`, `app.js`, `app.css`) and the built-in Settings sections (`settings.js`) |
 | `main/web/features/` | one ES module per feature card, listed automatically in `/features.json` |
 | `main/web_assets.cmake` | embeds everything under `main/web/` into the firmware |
