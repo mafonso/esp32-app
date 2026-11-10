@@ -27,3 +27,7 @@ CONFIG_LWIP_MAX_SOCKETS=16
 
 # Full speed; the board is USB powered
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# The web log hook (core/logbuf.c) formats each line on the logging task's stack;
+# give the default event loop, which logs Wi-Fi/IP events, some headroom.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=3584

@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "logbuf.h"
 #include "settings.h"
 #include "wifi.h"
 #include "web.h"
@@ -13,6 +14,10 @@ static const char *TAG = "app";
 
 void app_main(void)
 {
+    // First, so the web log viewer has the whole boot log.
+    if (logbuf_init() != ESP_OK) {
+        ESP_LOGW(TAG, "no memory for the log buffer; web log viewer disabled");
+    }
     // Give the host time to re-open the USB-Serial/JTAG port after a reset.
     vTaskDelay(pdMS_TO_TICKS(1500));
     ESP_LOGI(TAG, "%s %s starting", esp_app_get_description()->project_name,
