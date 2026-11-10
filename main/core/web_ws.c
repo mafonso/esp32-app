@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdatomic.h>
+#include <sys/select.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_http_server.h"
@@ -55,23 +56,52 @@ int web_ws_client_count(void)
     return ws_clients(NULL, 0);
 }
 
+// True if fd can take more data without blocking. A client that stopped reading (a
+// sleeping phone, a link dropped without FIN) fills its send buffer, and a blocking
+// send here would stall every HTTP request for send_wait_timeout per message.
+static bool ws_writable(int fd)
+{
+    fd_set w;
+    FD_ZERO(&w);
+    FD_SET(fd, &w);
+    struct timeval tv = {0};
+    return select(fd + 1, NULL, &w, NULL, &tv) > 0;
+}
+
 // Runs on the server task. Must not log: a log hook may broadcast.
 static void ws_send_work(void *arg)
 {
     // Clear first, so a message queued while we drain schedules another pass.
     atomic_store(&s_tx_scheduled, false);
+    int fds[WS_CLIENTS_MAX];
+    bool skip[WS_CLIENTS_MAX] = {0};
+    size_t n = ws_clients(fds, WS_CLIENTS_MAX);
+    if (n > WS_CLIENTS_MAX) {
+        n = WS_CLIENTS_MAX;
+    }
+    // Only what is queued now; later messages get their own pass, so HTTP requests
+    // are served in between even while broadcasts keep coming.
+    UBaseType_t pending = uxQueueMessagesWaiting(s_txq);
     char *msg;
-    while (xQueueReceive(s_txq, &msg, 0) == pdTRUE) {
+    while (pending-- > 0 && xQueueReceive(s_txq, &msg, 0) == pdTRUE) {
         size_t len = strlen(msg);
-        int fds[WS_CLIENTS_MAX];
-        size_t n = ws_clients(fds, WS_CLIENTS_MAX);
-        for (size_t i = 0; i < n && i < WS_CLIENTS_MAX; i++) {
+        for (size_t i = 0; i < n; i++) {
+            if (skip[i]) {
+                continue;
+            }
+            // A client that can't keep up misses messages; it is closed only when a
+            // send fails (TCP gave up on it), and the browser then reconnects.
+            if (!ws_writable(fds[i])) {
+                skip[i] = true;
+                continue;
+            }
             httpd_ws_frame_t frame = {
                 .type = HTTPD_WS_TYPE_TEXT,
                 .payload = (uint8_t *)msg,
                 .len = len,
             };
             if (httpd_ws_send_frame_async(s_server, fds[i], &frame) != ESP_OK) {
+                skip[i] = true;
                 httpd_sess_trigger_close(s_server, fds[i]);
             }
         }
