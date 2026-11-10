@@ -67,7 +67,8 @@ export const App = {
   async api(path, { method = 'GET', body } = {}) {
     // The server rejects state-changing requests without this header (CSRF guard).
     const headers = { 'X-Requested-With': 'fetch' };
-    const opts = { method, headers, cache: 'no-store' };
+    // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
+    const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
     if (body !== undefined) {
       if (typeof body === 'string') {
         opts.body = body;
@@ -76,7 +77,12 @@ export const App = {
         opts.body = JSON.stringify(body);
       }
     }
-    const r = await fetch(path, opts);
+    let r;
+    try {
+      r = await fetch(path, opts);
+    } catch (e) {
+      throw new Error(e.name === 'TimeoutError' ? 'The board did not respond' : 'Board unreachable');
+    }
     const isJson = (r.headers.get('Content-Type') || '').includes('json');
     const data = isJson ? await r.json() : await r.text();
     if (!r.ok) {
