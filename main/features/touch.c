@@ -24,12 +24,19 @@ static const char *TAG = "touch";
 
 // Touch threshold, as a rise of the smoothed reading over the benchmark, in
 // percent. On touch hardware v2 (S2/S3) readings go UP when a finger adds
-// capacitance. A finger on a bare header pin typically adds well over 5%;
-// noise stays under 1%. Release below the lower value (hysteresis) so a
-// reading hovering at the threshold doesn't flicker. Tune on the board with
-// the `touch` console command.
-#define TOUCH_ON_PCT 3.0f
-#define TOUCH_OFF_PCT 1.5f
+// capacitance. Measured on esp-dev: a finger on a bare header pin adds
+// +100-300%; idle noise is about 0.2%, but warm-up drift after boot reached +4%
+// on one pin. Release below the lower value (hysteresis) so a reading
+// hovering at the threshold doesn't flicker. Tune with the `touch` command.
+#define TOUCH_ON_PCT 20.0f
+#define TOUCH_OFF_PCT 10.0f
+
+// Safety net for drift: the hardware freezes a channel's benchmark while it is
+// active, so a slow drift past the threshold would never recover. A pin held
+// "touched" this long while reading under DRIFT_MAX_PCT (real touches are far
+// higher) gets its benchmark reset to the current reading.
+#define DRIFT_HOLD_US (10 * 1000 * 1000)
+#define DRIFT_MAX_PCT (2 * TOUCH_ON_PCT)
 
 typedef struct {
     uint8_t gpio;
@@ -50,7 +57,7 @@ static void snapshot(pin_t out[CHAN_NUM])
     taskEXIT_CRITICAL(&s_lock);
 }
 
-// {"pins":[{gpio,raw,delta,touched},...],"thresh_pct":3}
+// {"pins":[{gpio,raw,delta,touched},...],"thresh_pct":20}
 static cJSON *snapshot_json(void)
 {
     pin_t pins[CHAN_NUM];
@@ -69,9 +76,13 @@ static cJSON *snapshot_json(void)
     return root;
 }
 
-// Reads every channel and updates s_pins. Returns true if any touched flag changed.
+// Reads every channel and updates s_pins. Returns true if any touched flag
+// changed. Only called from one task at a time (init, then touch_task).
 static bool update(void)
 {
+    static int64_t s_since_us[CHAN_NUM];   // when each pin became touched
+    static const touch_chan_benchmark_config_t reset = {.do_reset = true};
+    int64_t now = esp_timer_get_time();
     bool changed = false;
     for (int i = 0; i < CHAN_NUM; i++) {
         uint32_t smooth, bench;
@@ -87,8 +98,22 @@ static bool update(void)
         p->raw = smooth;
         p->delta = delta;
         p->touched = was ? pct > TOUCH_OFF_PCT : pct > TOUCH_ON_PCT;
-        changed |= p->touched != was;
+        bool touched = p->touched;
         taskEXIT_CRITICAL(&s_lock);
+
+        if (touched && !was) {
+            s_since_us[i] = now;
+        } else if (touched && now - s_since_us[i] > DRIFT_HOLD_US && pct < DRIFT_MAX_PCT &&
+                   touch_channel_config_benchmark(s_chan[i], &reset) == ESP_OK) {
+            ESP_LOGW(TAG, "GPIO%u stuck at +%.1f%% for %d s: drift, re-baselined", s_pins[i].gpio,
+                     pct, DRIFT_HOLD_US / 1000000);
+            taskENTER_CRITICAL(&s_lock);
+            p->touched = false;
+            p->delta = 0;
+            taskEXIT_CRITICAL(&s_lock);
+            touched = false;
+        }
+        changed |= touched != was;
     }
     return changed;
 }
@@ -178,7 +203,8 @@ static esp_err_t setup(void)
     }
 
     // The hardware's own active state stops benchmark updates while touched,
-    // so give it the same threshold as the software decision.
+    // so give it the same ON threshold as the software decision: drift below
+    // it keeps being tracked, a real touch freezes the benchmark.
     for (int i = 0; i < CHAN_NUM; i++) {
         uint32_t bench = 0;
         err = touch_channel_read_data(s_chan[i], TOUCH_CHAN_DATA_TYPE_BENCHMARK, &bench);

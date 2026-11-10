@@ -4,7 +4,7 @@
 const CSS = `
 .touch-hint { color: var(--muted); margin: 0 0 12px; }
 .touch-pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 24px; }
-.touch-pin { display: grid; grid-template-columns: 62px 1fr 48px; align-items: center; gap: 10px; }
+.touch-pin { display: grid; grid-template-columns: 62px 1fr 58px; align-items: center; gap: 10px; }
 .touch-pin .lbl { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .touch-pin .val { text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .touch-pin .trk { position: relative; height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
@@ -16,8 +16,9 @@ const CSS = `
 .touch-pin.on .fill { background: var(--accent); opacity: 1; }
 `;
 
-// Bar full scale, as a multiple of the touch threshold.
-const FULL_SCALE = 4;
+// Bar full scale, as a multiple of the touch threshold: 5 x 20% = +100%, about a
+// light finger touch on a header pin; firmer touches just fill the bar.
+const FULL_SCALE = 5;
 
 function injectStyle() {
   if (document.getElementById('touch-css')) return;
@@ -59,7 +60,7 @@ export default function (App) {
 
       App.on('touch', d => {
         const pins = d?.pins || [];
-        const thresh = d?.thresh_pct || 3;
+        const thresh = d?.thresh_pct || 20;
         if (pins.length !== rows.size || pins.some(p => !rows.has(p.gpio))) build(pins, thresh);
         for (const p of pins) {
           const r = rows.get(p.gpio);
