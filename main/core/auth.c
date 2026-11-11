@@ -156,7 +156,12 @@ bool web_require_admin(httpd_req_t *req)
         }
         vTaskDelay(pdMS_TO_TICKS(FAIL_DELAY_MS));
     }
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"esp32\", charset=\"UTF-8\"");
+    // Only challenge direct visits. The page's fetch() calls (X-Requested-With) ask for the
+    // password themselves: browsers handle a challenge on fetch() inconsistently, and iOS
+    // WebKit never retries a POST with saved credentials, so Save hangs.
+    if (httpd_req_get_hdr_value_len(req, "X-Requested-With") == 0) {
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"esp32\", charset=\"UTF-8\"");
+    }
     httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "admin password required (user: admin)");
     return false;
 }

@@ -122,7 +122,8 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    }
    ```
    `App.api(path, {method, body})` does fetch with the CSRF header and JSON in/out, throwing
-   `Error(text)` with `.status` on HTTP errors (401 = admin password needed; the browser prompts). Cards are mounted once and never unmounted. Use the CSS classes in
+   `Error(text)` with `.status` on HTTP errors. On a 401 it asks for the admin password in its own
+   dialog and retries, so a 401 that reaches you means the user cancelled. Cards are mounted once and never unmounted. Use the CSS classes in
    `app.css` (`card`, `row`, `msg`, `dl`, `button.primary`, `meter`) and its colour variables.
 8. **Settings** (optional): the main page is for using the board; configuration goes on the
    Settings page (cog icon), which has Back/Close and a Save/Cancel bar. Add a section from the

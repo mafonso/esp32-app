@@ -38,5 +38,15 @@
     <button id="save" class="primary">Save</button>
   </div>
 </div>
+<dialog id="signin">
+  <form method="dialog">
+    <h2>Admin password</h2>
+    <input type="text" autocomplete="username" value="admin" hidden>
+    <label>The current admin password (user admin)
+      <input type="password" id="signin-pw" autocomplete="current-password" maxlength="64"></label>
+    <div class="msg err" id="signin-msg"></div>
+    <div class="row end"><button type="button" id="signin-cancel">Cancel</button><button value="ok" class="primary">Sign in</button></div>
+  </form>
+</dialog>
 </body>
 </html>

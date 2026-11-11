@@ -80,3 +80,11 @@ input:disabled, select:disabled { opacity: .6; }
 .inrow { display: flex; gap: 8px; align-items: center; }
 .inrow > input { flex: 1; }
 .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+
+/* Admin sign-in dialog (app.js askPassword) */
+dialog {
+  width: min(360px, calc(100vw - 32px)); padding: 18px; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+.row.end { justify-content: flex-end; }

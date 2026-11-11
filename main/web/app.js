@@ -20,7 +20,10 @@
 //   App.on(topic, cb) -> unsubscribe   messages {"t":topic,"d":data} from web_ws_broadcast();
 //                                      local topics '$open' / '$close' track the socket
 //   App.send(topic, data) -> bool      to web_ws_on() handlers; false if not connected
-//   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) on HTTP errors
+//   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) with .status
+//                                      on HTTP errors. On 401 it asks for the admin password
+//                                      and retries (401 thrown = the user cancelled)
+//   App.signIn(password|null), App.signedIn   the admin password the page sends
 //   App.card({id, title, order, wide, mount})
 //   App.settings({id, title, order, mount(el, ctx), save, reset})
 //                                      a section on the Settings page. Editable sections
@@ -41,6 +44,49 @@ let ws = null;
 let retryMs = 1000;
 let cardsReady = false;
 let everConnected = false;
+
+// ---- Admin sign-in ----
+// Admin requests from this page get a bare 401 (auth.c sends no WWW-Authenticate to
+// fetch() calls, which browsers handle inconsistently): App.api() asks here, then
+// sends the password itself. Kept for the browser session.
+
+const AUTH_KEY = 'esp32-admin-auth';
+let auth = null;
+try { auth = sessionStorage.getItem(AUTH_KEY); } catch (e) { }
+let asking = null;  // one dialog shared by concurrent 401s
+
+function setAuth(password) {
+  auth = null;
+  if (password != null) {
+    const bytes = new TextEncoder().encode('admin:' + password);
+    auth = 'Basic ' + btoa(String.fromCharCode(...bytes));
+  }
+  try {
+    if (auth) sessionStorage.setItem(AUTH_KEY, auth); else sessionStorage.removeItem(AUTH_KEY);
+  } catch (e) { }
+}
+
+// Resolves true once a password was entered, false if cancelled.
+function askPassword(wrong) {
+  if (!asking) {
+    asking = new Promise(resolve => {
+      const dlg = $('signin'), pw = $('signin-pw');
+      pw.value = '';
+      $('signin-msg').textContent = wrong ? 'Wrong password, try again.' : '';
+      dlg.returnValue = '';
+      $('signin-cancel').onclick = () => dlg.close('cancel');
+      dlg.onclose = () => {
+        asking = null;
+        const ok = dlg.returnValue === 'ok' && pw.value !== '';
+        if (ok) setAuth(pw.value);
+        pw.value = '';
+        resolve(ok);
+      };
+      dlg.showModal();
+    });
+  }
+  return asking;
+}
 
 function emit(topic, data) {
   for (const cb of handlers.get(topic) || []) {
@@ -65,37 +111,47 @@ export const App = {
   },
 
   async api(path, { method = 'GET', body } = {}) {
-    // The server rejects state-changing requests without this header (CSRF guard).
-    const headers = { 'X-Requested-With': 'fetch' };
-    // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
-    const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
-    if (body !== undefined) {
-      if (typeof body === 'string') {
-        opts.body = body;
-      } else {
-        headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
+    for (;;) {
+      // The server rejects state-changing requests without this header (CSRF guard).
+      const headers = { 'X-Requested-With': 'fetch' };
+      const sent = auth;
+      if (sent) headers.Authorization = sent;
+      // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
+      const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
+      if (body !== undefined) {
+        if (typeof body === 'string') {
+          opts.body = body;
+        } else {
+          headers['Content-Type'] = 'application/json';
+          opts.body = JSON.stringify(body);
+        }
       }
+      let r;
+      try {
+        r = await fetch(path, opts);
+      } catch (e) {
+        throw new Error(e.name === 'TimeoutError' ? 'The board did not respond' : 'Board unreachable');
+      }
+      const isJson = (r.headers.get('Content-Type') || '').includes('json');
+      const data = isJson ? await r.json() : await r.text();
+      if (r.status === 401) {
+        if (sent && sent === auth) setAuth(null);  // stale or wrong: forget it
+        if (await askPassword(!!sent)) continue;
+      }
+      if (!r.ok) {
+        const text = r.status === 401 ? 'Admin password required'
+          : typeof data === 'string' && data ? data : `HTTP ${r.status}`;
+        const err = new Error(text);
+        err.status = r.status;
+        throw err;
+      }
+      return data;
     }
-    let r;
-    try {
-      r = await fetch(path, opts);
-    } catch (e) {
-      throw new Error(e.name === 'TimeoutError' ? 'The board did not respond' : 'Board unreachable');
-    }
-    const isJson = (r.headers.get('Content-Type') || '').includes('json');
-    const data = isJson ? await r.json() : await r.text();
-    if (!r.ok) {
-      // 401: the browser already showed its sign-in prompt (WWW-Authenticate) and the
-      // user cancelled it or got the password wrong; the next request prompts again.
-      const text = r.status === 401 ? 'Admin password required (user: admin)'
-        : typeof data === 'string' && data ? data : `HTTP ${r.status}`;
-      const err = new Error(text);
-      err.status = r.status;
-      throw err;
-    }
-    return data;
   },
+
+  // The admin password the page sends; call after changing it (null after removing it).
+  signIn(password) { setAuth(password); },
+  get signedIn() { return !!auth; },
 
   card(def) {
     cards.push({ order: 100, wide: false, ...def });
@@ -295,7 +351,8 @@ document.querySelectorAll('[data-close]').forEach(b => { b.onclick = closeSettin
 $('cancel').onclick = () => { resetSections(); location.hash = '#/'; };
 $('save').onclick = saveSettings;
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && currentPath() === '/settings') closeSettings();
+  // Esc in the sign-in dialog only closes the dialog.
+  if (e.key === 'Escape' && currentPath() === '/settings' && !$('signin').open) closeSettings();
 });
 window.addEventListener('beforeunload', e => { if (isDirty()) e.preventDefault(); });
 
