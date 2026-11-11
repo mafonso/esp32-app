@@ -13,7 +13,7 @@ idf.py flash monitor     # Ctrl-] quits monitor
 
 - If a build dir predates a change to `sdkconfig.defaults`, delete `sdkconfig` (and rerun the build) so the
   new defaults apply. Missing WebSocket support stops the build with an `#error` saying exactly this.
-- The dev board is **esp-dev** (`http://esp-dev.local/`, IoT VLAN). It is plugged into the
+- The dev board is **esp-dev** (`http://172.16.101.70/`, IoT VLAN). It is plugged into the
   **esp-devbox** container, the only machine that flashes it; see below. There is one board: agents
   working in parallel build only and never flash.
 - If after flashing the board sits in the ROM bootloader (no app output), reset it into the app:
@@ -39,8 +39,12 @@ esp-devbox is a Proxmox LXC container with ESP-IDF v6.1, Claude Code, `gh` and t
 - `~/.config/esptool/esptool.cfg` sets esptool's `custom_reset_sequence` to the USB-Serial/JTAG one.
   Inside the container esptool can't recognise the port type, and its default UART sequence fails with
   "Wrong boot mode detected (0x8)".
-- The board reports over Wi-Fi too: `curl http://esp-dev.local/api/info`, and Settings → Logs in a
-  browser (or `/api/logs`) when nobody is on the USB console.
+- The board reports over Wi-Fi too: `curl http://172.16.101.70/api/info`, and Settings → Logs in a
+  browser (or `/api/logs`) when nobody is on the USB console. Use the IP: on esp-devbox `esp-dev.local`
+  goes through the DNS search domain and resolves to a wrong address. If the IP changes, the console
+  `status` command shows the new one.
+- Hangs that only the user's devices see (not esp-devbox): check the router's IPS threat log first. It
+  blocks clients that repeat `Authorization: Basic admin:…`, which is why the page uses a session token.
 - `sdkconfig.secrets` is not in the clone. The board keeps its Wi-Fi credentials in NVS across
   flashes, so it isn't needed unless the flash is erased.
 
