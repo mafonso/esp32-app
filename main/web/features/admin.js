@@ -246,8 +246,8 @@ function passwordSection(App) {
         <label>New password<input type="password" data-k="pw" maxlength="64" autocomplete="new-password"></label>
         <label>Confirm<input type="password" data-k="pw2" maxlength="64" autocomplete="new-password"></label>
         <div class="row"><button type="button" data-k="off" hidden>Remove password</button></div>
-        <p class="hint">With a password, updates, reboots, settings changes and the log viewer ask for user
-          <b>admin</b> and this password in your browser's sign-in prompt. The main page and status stay open.
+        <p class="hint">With a password, updates, reboots, settings changes and the log viewer ask for it
+          (user <b>admin</b> if you open an admin URL directly). The main page and status stay open.
           Forgotten? On the USB console run <code>passwd -</code>.</p>
         <div class="msg" data-k="msg"></div>`);
       k.pw.oninput = k.pw2.oninput = edited;
@@ -273,11 +273,12 @@ function passwordSection(App) {
         if (password !== k.pw2.value) throw new Error('Admin password: the two entries differ');
       }
       const r = await App.api('/api/settings/password', { method: 'POST', body: { password } });
+      App.signIn(r.token || null);  // the old token was signed out with the old password
       enabled = r.enabled;
       removing = false;
       k.pw.value = k.pw2.value = '';
       showState();
-      say(k.msg, enabled ? 'Saved. Your browser will ask for user admin and the new password next time.' : 'Removed.', 'ok');
+      say(k.msg, enabled ? 'Saved.' : 'Removed.', 'ok');
     },
     reset() {
       removing = false;
@@ -329,7 +330,7 @@ function logsSection(App, pw) {
       if (e.status === 401 || e.status === 429) {
         stop();
         authorised = false;
-        say(k.msg, e.status === 401 ? 'Admin password required (user: admin).' : e.message, 'err');
+        say(k.msg, e.status === 401 ? 'Admin password required.' : e.message, 'err');
         k.start.hidden = false;
         return;
       }
@@ -357,7 +358,7 @@ function logsSection(App, pw) {
     if (!visible) return;
     // With a password set, only start on a click, so opening Settings doesn't
     // pop up a sign-in prompt by itself.
-    if (pw.enabled && !authorised) {
+    if (pw.enabled && !authorised && !App.signedIn) {
       k.start.hidden = false;
       say(k.msg, 'The log viewer needs the admin password.');
     } else {

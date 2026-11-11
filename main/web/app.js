@@ -20,7 +20,10 @@
 //   App.on(topic, cb) -> unsubscribe   messages {"t":topic,"d":data} from web_ws_broadcast();
 //                                      local topics '$open' / '$close' track the socket
 //   App.send(topic, data) -> bool      to web_ws_on() handlers; false if not connected
-//   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) on HTTP errors
+//   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) with .status
+//                                      on HTTP errors. On 401 it asks for the admin password
+//                                      and retries (401 thrown = the user cancelled)
+//   App.signIn(token|null), App.signedIn      the admin session token the page sends
 //   App.card({id, title, order, wide, mount})
 //   App.settings({id, title, order, mount(el, ctx), save, reset})
 //                                      a section on the Settings page. Editable sections
@@ -41,6 +44,73 @@ let ws = null;
 let retryMs = 1000;
 let cardsReady = false;
 let everConnected = false;
+
+// ---- Admin sign-in ----
+// Admin requests from this page get a bare 401 (auth.c sends no WWW-Authenticate to
+// fetch() calls, which browsers handle inconsistently). App.api() then asks here, trades
+// the password for a session token (POST /api/login) and sends that in X-Admin-Token.
+// Not Basic auth: "Authorization: Basic admin:..." on every log poll trips the
+// "ET SCAN Tomcat Auth Brute Force" rule of router IPSes, which then block this client.
+// Kept for the browser session; the board forgets tokens on reboot or password change.
+
+const TOKEN_KEY = 'esp32-admin-token';
+let token = null;
+try { token = sessionStorage.getItem(TOKEN_KEY); } catch (e) { }
+let asking = null;  // one dialog shared by concurrent 401s
+
+function setToken(t) {
+  token = t || null;
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token); else sessionStorage.removeItem(TOKEN_KEY);
+  } catch (e) { }
+}
+
+// Resolves true once signed in, false if cancelled.
+function askPassword(note) {
+  if (!asking) {
+    asking = new Promise(resolve => {
+      const dlg = $('signin'), form = dlg.querySelector('form'), pw = $('signin-pw');
+      const ok = form.querySelector('button.primary'), msg = $('signin-msg');
+      pw.value = '';
+      msg.textContent = note || '';
+      const finish = result => {
+        form.onsubmit = dlg.oncancel = null;
+        asking = null;
+        pw.value = '';
+        dlg.close();
+        resolve(result);
+      };
+      $('signin-cancel').onclick = () => finish(false);
+      dlg.oncancel = e => { e.preventDefault(); finish(false); };
+      form.onsubmit = async e => {
+        e.preventDefault();
+        if (!pw.value) return;
+        ok.disabled = true;
+        msg.textContent = '';
+        try {
+          const r = await fetch('/api/login', {
+            method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(30000),
+            headers: { 'X-Requested-With': 'fetch', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw.value }),
+          });
+          if (r.ok) {
+            setToken((await r.json()).token);
+            finish(true);
+            return;
+          }
+          msg.textContent = r.status === 401 ? 'Wrong password, try again.' : (await r.text()) || `HTTP ${r.status}`;
+          pw.select();
+        } catch (err) {
+          msg.textContent = 'The board did not respond.';
+        } finally {
+          ok.disabled = false;
+        }
+      };
+      dlg.showModal();
+    });
+  }
+  return asking;
+}
 
 function emit(topic, data) {
   for (const cb of handlers.get(topic) || []) {
@@ -65,37 +135,49 @@ export const App = {
   },
 
   async api(path, { method = 'GET', body } = {}) {
-    // The server rejects state-changing requests without this header (CSRF guard).
-    const headers = { 'X-Requested-With': 'fetch' };
-    // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
-    const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
-    if (body !== undefined) {
-      if (typeof body === 'string') {
-        opts.body = body;
-      } else {
-        headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
+    for (;;) {
+      // The server rejects state-changing requests without this header (CSRF guard).
+      const headers = { 'X-Requested-With': 'fetch' };
+      const sent = token;
+      if (sent) headers['X-Admin-Token'] = sent;
+      // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
+      const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
+      if (body !== undefined) {
+        if (typeof body === 'string') {
+          opts.body = body;
+        } else {
+          headers['Content-Type'] = 'application/json';
+          opts.body = JSON.stringify(body);
+        }
       }
+      let r;
+      try {
+        r = await fetch(path, opts);
+      } catch (e) {
+        throw new Error(e.name === 'TimeoutError' ? 'The board did not respond' : 'Board unreachable');
+      }
+      const isJson = (r.headers.get('Content-Type') || '').includes('json');
+      const data = isJson ? await r.json() : await r.text();
+      if (r.status === 401) {
+        // Sent before a sign-in or password change finished: retry with the new token.
+        if (token && sent !== token) continue;
+        if (sent) setToken(null);  // the board restarted or the password changed
+        if (await askPassword(sent ? 'Signed out (the board restarted or the password changed).' : '')) continue;
+      }
+      if (!r.ok) {
+        const text = r.status === 401 ? 'Admin password required'
+          : typeof data === 'string' && data ? data : `HTTP ${r.status}`;
+        const err = new Error(text);
+        err.status = r.status;
+        throw err;
+      }
+      return data;
     }
-    let r;
-    try {
-      r = await fetch(path, opts);
-    } catch (e) {
-      throw new Error(e.name === 'TimeoutError' ? 'The board did not respond' : 'Board unreachable');
-    }
-    const isJson = (r.headers.get('Content-Type') || '').includes('json');
-    const data = isJson ? await r.json() : await r.text();
-    if (!r.ok) {
-      // 401: the browser already showed its sign-in prompt (WWW-Authenticate) and the
-      // user cancelled it or got the password wrong; the next request prompts again.
-      const text = r.status === 401 ? 'Admin password required (user: admin)'
-        : typeof data === 'string' && data ? data : `HTTP ${r.status}`;
-      const err = new Error(text);
-      err.status = r.status;
-      throw err;
-    }
-    return data;
   },
+
+  // The session token the page sends: pass the `token` a password change returns (null when removed).
+  signIn(t) { setToken(t); },
+  get signedIn() { return !!token; },
 
   card(def) {
     cards.push({ order: 100, wide: false, ...def });
@@ -295,7 +377,8 @@ document.querySelectorAll('[data-close]').forEach(b => { b.onclick = closeSettin
 $('cancel').onclick = () => { resetSections(); location.hash = '#/'; };
 $('save').onclick = saveSettings;
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && currentPath() === '/settings') closeSettings();
+  // Esc in the sign-in dialog only closes the dialog.
+  if (e.key === 'Escape' && currentPath() === '/settings' && !$('signin').open) closeSettings();
 });
 window.addEventListener('beforeunload', e => { if (isDirty()) e.preventDefault(); });
 
