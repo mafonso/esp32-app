@@ -128,10 +128,12 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    send `Authorization: Basic admin:…` repeatedly. Cards are mounted once and never unmounted. Use the CSS classes in
    `app.css` (`card`, `row`, `msg`, `dl`, `button.primary`, `meter`) and its colour variables.
 8. **Settings** (optional): the main page is for using the board; configuration goes on the
-   Settings page (cog icon), which has Back/Close and a Save/Cancel bar. Add a section from the
-   same module:
+   Settings page (cog icon), which has Back/Close and a Save/Cancel bar. The page is grouped into
+   categories (`CATEGORIES` in `app.js`): System (firmware, hardware, health, logs), Network,
+   Features and Security, one shown at a time. Feature sections go under Features by default; set
+   `category` only for one that belongs elsewhere. Add a section from the same module:
    ```js
-   App.settings({ id: '<name>', title: 'Name', order: 50,   // built-ins use 10–40
+   App.settings({ id: '<name>', title: 'Name', order: 50,   // order within the category
      mount(el, ctx) {                                        // ctx.dirty(true) on every edit
        el.innerHTML = '<input data-k="x">';
        el.querySelector('input').oninput = () => ctx.dirty(true);
@@ -142,6 +144,7 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    ```
    Save awaits `save()` of every dirty section, then returns to the main page; Cancel, Back, Close
    and Esc call `reset()` (asking first if anything is unsaved). Read-only sections omit both.
+   Optional `show()`/`hide()` run when the section's category comes on screen or is left.
 
 ## Conventions
 

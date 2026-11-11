@@ -22,7 +22,7 @@ body {
 header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 20px; }
 h1 { font-size: 22px; margin: 0; }
 header .sub { flex: 1; }
-#hdr-settings { max-width: 720px; margin-left: auto; margin-right: auto; }
+#hdr-settings { max-width: 880px; margin-left: auto; margin-right: auto; }
 #hdr-settings h1 { flex: 1; }
 nav { display: flex; gap: 4px; }
 nav a, button.icon {
@@ -59,11 +59,30 @@ button:disabled { opacity: .5; cursor: default; }
 .meter { height: 4px; background: var(--line); border-radius: 2px; margin-top: 2px; overflow: hidden; }
 .meter > div { height: 100%; background: var(--accent); }
 
-/* Settings page: stacked sections and a Save/Cancel bar while anything is edited */
-.settings { display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+/* Settings page: a category menu beside the selected category's sections, and a
+   Save/Cancel bar while anything is edited. On phones the menu is a scrolling row. */
+.settings { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 24px; align-items: start; }
+.tabs { flex-direction: column; gap: 2px; position: sticky; top: 16px; }
+.tabs button {
+  position: relative; text-align: left; border-color: transparent; background: none; color: var(--muted);
+  padding: 8px 12px; white-space: nowrap;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-current="page"] { color: var(--text); background: var(--card); border-color: var(--line); font-weight: 600; }
+.tabs button.dirty::after {  /* unsaved changes in this category */
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; vertical-align: middle;
+  border-radius: 50%; background: var(--warn);
+}
+.pane { display: grid; gap: 16px; }
+.pane > .hint { margin: 0; }
+@media (max-width: 640px) {
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .tabs { flex-direction: row; position: static; overflow-x: auto; margin: 0 -16px; padding: 0 16px 2px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+}
 .savebar {
   position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: flex-end;
-  max-width: 720px; margin: 16px auto 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line);
+  max-width: 880px; margin: 16px auto 0; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line);
 }
 .savebar .msg { flex: 1; margin: 0; }
 

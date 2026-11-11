@@ -25,13 +25,14 @@
 //                                      and retries (401 thrown = the user cancelled)
 //   App.signIn(token|null), App.signedIn      the admin session token the page sends
 //   App.card({id, title, order, wide, mount})
-//   App.settings({id, title, order, mount(el, ctx), save, reset})
-//                                      a section on the Settings page. Editable sections
+//   App.settings({id, title, category, order, mount(el, ctx), save, reset})
+//                                      a section on the Settings page, under one of the
+//                                      CATEGORIES below (default 'features'). Editable sections
 //                                      call ctx.dirty(true) when edited; Save then awaits
 //                                      save() of every dirty section and closes the page
 //                                      (a throw keeps it open and shows the message);
 //                                      Cancel/close call reset(). Optional show()/hide()
-//                                      run when the Settings page opens/closes.
+//                                      run when the section's category is shown/left.
 //   App.connected, App.info (last /api/info), App.fmt (kb, mb, duration)
 
 import coreSettings from '/settings.js';
@@ -40,6 +41,15 @@ const $ = id => document.getElementById(id);
 const handlers = new Map();
 const cards = [];
 const sections = [];
+
+// Settings categories, in menu order. Keep them few: a section picks one with `category`.
+const CATEGORIES = [
+  { id: 'system', title: 'System', hint: 'Firmware version and updates, hardware, health and the live log.' },
+  { id: 'network', title: 'Network', hint: 'How the board joins Wi-Fi and the name it has on the network.' },
+  { id: 'features', title: 'Features', hint: 'Options for the features on the main page.' },
+  { id: 'security', title: 'Security', hint: 'Who may change settings, install updates or reboot the board.' },
+];
+const DEFAULT_CATEGORY = 'features';
 let ws = null;
 let retryMs = 1000;
 let cardsReady = false;
@@ -185,7 +195,8 @@ export const App = {
   },
 
   settings(def) {
-    sections.push({ order: 100, ...def });
+    const cat = CATEGORIES.some(c => c.id === def.category) ? def.category : DEFAULT_CATEGORY;
+    sections.push({ order: 100, ...def, cat });
     renderSections();
   },
 
@@ -298,23 +309,69 @@ async function loadFeatures() {
 }
 
 // ---- Settings page ----
+// A menu of CATEGORIES (a column on wide screens, a scrolling row on phones) and one
+// pane per category, of which only the selected one is shown: #/settings/<category>.
 
 const settingsPage = {
+  cat: null,   // category on screen, null while the page is closed
+  last: null,  // reopened next time
+  tabs: {},
+  panes: {},
   mount(el) {
-    el.innerHTML = '<div class="settings"></div>';
-    this.list = el.firstElementChild;
+    el.innerHTML = '<div class="settings"><nav class="tabs" aria-label="Settings categories"></nav><div></div></div>';
+    const nav = el.querySelector('.tabs'), body = nav.nextElementSibling;
+    for (const c of CATEGORIES) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.textContent = c.title;
+      tab.hidden = true;  // until a section uses it
+      tab.onclick = () => {
+        history.replaceState(null, '', '#/settings/' + c.id);  // tabs don't pile up in history
+        showCategory(c.id);
+      };
+      nav.appendChild(tab);
+      const pane = document.createElement('div');
+      pane.className = 'pane';
+      pane.hidden = true;
+      pane.innerHTML = '<p class="hint"></p>';
+      pane.firstElementChild.textContent = c.hint;
+      body.appendChild(pane);
+      this.tabs[c.id] = tab;
+      this.panes[c.id] = pane;
+    }
     renderSections();
   },
-  show() { sections.forEach(s => s.show?.()); },
-  hide() { sections.forEach(s => s.hide?.()); },
+  show() { showCategory(categoryFromHash()); },
+  hide() { showCategory(null); },
 };
 
+function categoryFromHash() {
+  const id = location.hash.slice('#/settings/'.length);
+  if (location.hash.startsWith('#/settings/') && CATEGORIES.some(c => c.id === id)) return id;
+  return settingsPage.last || CATEGORIES.find(c => sections.some(s => s.cat === c.id))?.id || CATEGORIES[0].id;
+}
+
+// Shows one category (null: none) and runs hide()/show() of the sections it leaves/enters.
+function showCategory(id) {
+  const prev = settingsPage.cat;
+  if (id === prev) return;
+  settingsPage.cat = id;
+  if (id) settingsPage.last = id;
+  for (const s of sections) if (s.el && s.cat === prev) s.hide?.();
+  for (const c of CATEGORIES) {
+    settingsPage.panes[c.id].hidden = c.id !== id;
+    settingsPage.tabs[c.id].setAttribute('aria-current', c.id === id ? 'page' : 'false');
+  }
+  for (const s of sections) if (s.el && s.cat === id) s.show?.();
+  window.scrollTo(0, 0);
+}
+
 function renderSections() {
-  const list = settingsPage.list;
-  if (!list) return;
+  if (!settingsPage.tabs[CATEGORIES[0].id]) return;  // page not mounted yet
   sections.sort((a, b) => a.order - b.order || String(a.title).localeCompare(b.title));
   for (const s of sections) {
-    if (!s.el) {
+    const fresh = !s.el;
+    if (fresh) {
       s.el = document.createElement('section');
       s.el.className = 'card';
       s.el.innerHTML = '<h2></h2><div></div>';
@@ -329,7 +386,10 @@ function renderSections() {
         s.el.lastElementChild.textContent = `failed: ${e.message}`;
       }
     }
-    list.appendChild(s.el);
+    settingsPage.panes[s.cat].appendChild(s.el);  // re-appending keeps the sorted order
+    settingsPage.tabs[s.cat].hidden = false;
+    // Registered while its category is on screen (feature modules load late).
+    if (fresh && s.cat === settingsPage.cat) s.show?.();
   }
 }
 
@@ -337,6 +397,9 @@ const isDirty = () => sections.some(s => s.isDirty);
 
 function updateSaveBar(msg) {
   $('savebar').hidden = !isDirty() || currentPath() !== '/settings';
+  for (const c of CATEGORIES) {
+    settingsPage.tabs[c.id]?.classList.toggle('dirty', sections.some(s => s.cat === c.id && s.isDirty));
+  }
   $('savemsg').className = msg ? 'msg err' : 'msg';
   $('savemsg').textContent = msg || 'Unsaved changes';
 }
@@ -359,14 +422,21 @@ function closeSettings() {
 
 async function saveSettings() {
   $('save').disabled = $('cancel').disabled = true;
+  let current = null;
   try {
     for (const s of sections.filter(s => s.isDirty)) {
+      current = s;
       await s.save?.();
       s.isDirty = false;
     }
     updateSaveBar();
     location.hash = '#/';
   } catch (e) {
+    // Show the section that failed, which may be in another category.
+    if (current) {
+      history.replaceState(null, '', '#/settings/' + current.cat);
+      showCategory(current.cat);
+    }
     updateSaveBar(e.message || 'Save failed');
   } finally {
     $('save').disabled = $('cancel').disabled = false;
@@ -389,14 +459,16 @@ const els = {};
 let shown = null;
 
 function currentPath() {
-  return pages[location.hash.slice(1)] ? location.hash.slice(1) : '/';
+  const h = location.hash.slice(1);
+  if (h.startsWith('/settings/')) return '/settings';
+  return pages[h] ? h : '/';
 }
 
 function route() {
   const path = currentPath();
   // Browser back from Settings with unsaved edits: confirm before leaving.
   if (shown === '/settings' && path !== '/settings' && isDirty()) {
-    if (!confirm('Discard unsaved changes?')) { location.hash = '#/settings'; return; }
+    if (!confirm('Discard unsaved changes?')) { location.hash = '#/settings/' + settingsPage.last; return; }
     resetSections();
   }
   for (const [p, page] of Object.entries(pages)) {
@@ -408,7 +480,7 @@ function route() {
     }
     if (!els[p]) continue;
     els[p].hidden = !active;
-    if (p !== shown && active) page.show?.();
+    if (active && (p !== shown || p === '/settings')) page.show?.();  // also a typed category
     if (p === shown && !active) page.hide?.();
   }
   $('hdr-main').hidden = path === '/settings';

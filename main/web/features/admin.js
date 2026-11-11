@@ -22,7 +22,6 @@ const css = `
 `;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const isSettingsOpen = () => location.hash === '#/settings';
 
 function bind(el, html) {
   el.innerHTML = html;
@@ -82,7 +81,7 @@ function wifiSection(App) {
   }
 
   return {
-    id: 'wifi', title: 'Wi-Fi', order: 22,
+    id: 'wifi', title: 'Wi-Fi', category: 'network', order: 20,
     mount(el, c) {
       ctx = c;
       k = bind(el, `
@@ -167,7 +166,7 @@ function nameSection(App) {
   }
 
   return {
-    id: 'hostname', title: 'Hostname', order: 24,
+    id: 'hostname', title: 'Hostname', category: 'network', order: 30,
     mount(el, c) {
       ctx = c;
       k = bind(el, `
@@ -236,7 +235,7 @@ function passwordSection(App) {
   }
 
   return {
-    id: 'password', title: 'Admin password', order: 60,
+    id: 'password', title: 'Admin password', category: 'security', order: 10,
     get enabled() { return enabled; },
     load,
     mount(el, c) {
@@ -367,7 +366,7 @@ function logsSection(App, pw) {
   }
 
   return {
-    id: 'logs', title: 'Logs', order: 90,
+    id: 'logs', title: 'Logs', category: 'system', order: 40,
     mount(el) {
       k = bind(el, `
         <div class="row logbar">
@@ -394,8 +393,6 @@ function logsSection(App, pw) {
       };
       k.clear.onclick = () => { k.view.innerHTML = ''; };
       k.start.onclick = () => { paused = false; k.pause.textContent = 'Pause'; start(); };
-      // Settings may already be open when this module loads.
-      if (isSettingsOpen()) open();
     },
     show() { open(); },
     hide() { visible = false; stop(); },
