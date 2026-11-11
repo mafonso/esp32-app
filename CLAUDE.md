@@ -62,7 +62,7 @@ reach Wi-Fi within 60 s rolls back on its own.
 | `main/app_main.c` | boot order: settings → Wi-Fi → features init → web → feature routes → console → OTA confirm |
 | `main/core/` | shared infrastructure: `wifi`, `settings` (NVS), `auth` (admin password), `logbuf` (log ring buffer), `ota`, `web` (HTTP + static files), `web_settings` (settings/admin API), `web_ws` (WebSocket hub), `console_cmds`, `app_events` |
 | `main/features/` | one `.c` per feature, plus the registry `features.c` |
-| `main/web/` | frontend, embedded as-is: `index.html`, `app.css`, `app.js` (shell), `settings.js` |
+| `main/web/` | frontend, embedded as-is: `index.html`, `app.css`, `app.js` (shell), `settings.js`, `chart.js` (live line chart for cards) |
 | `main/web/features/` | one ES module per feature UI, loaded automatically |
 | `main/web_assets.cmake` | embeds `main/web/**` and generates the file table and `/features.json` |
 
@@ -113,7 +113,7 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
 7. **UI** (optional): `main/web/features/<name>.js` is picked up by the build and loaded by the page:
    ```js
    export default function (App) {
-     App.card({ id: '<name>', title: 'Name', order: 50, mount(el, App) {
+     App.card({ id: '<name>', title: 'Name', order: 50, span: 1, mount(el, App) {  // span: columns of 3
        el.innerHTML = '...';
        App.on('<name>', d => { /* update el */ });       // web_ws_broadcast("<name>", ...)
        App.on('$open', () => App.send('<name>'));       // re-sync after (re)connect
@@ -125,7 +125,9 @@ Copy `main/features/sysinfo.c` and `main/web/features/sysinfo.js`; they use ever
    `Error(text)` with `.status` on HTTP errors. On a 401 it asks for the admin password in its own
    dialog and retries, so a 401 that reaches you means the user cancelled. It signs in with a session
    token (`X-Admin-Token`), never per-request Basic auth: router IPSes (UniFi etc.) block clients that
-   send `Authorization: Basic admin:…` repeatedly. Cards are mounted once and never unmounted. Use the CSS classes in
+   send `Authorization: Basic admin:…` repeatedly. Cards are mounted once and never unmounted. The main page is a 3-column grid (one column on phones):
+   row 1 is System (with the temperature chart), then controls, then wide cards; pick `order`/`span` to fit.
+   For a live chart, `import { lineChart } from '/chart.js'`. Use the CSS classes in
    `app.css` (`card`, `row`, `msg`, `dl`, `button.primary`, `meter`) and its colour variables.
 8. **Settings** (optional): the main page is for using the board; configuration goes on the
    Settings page (cog icon), which has Back/Close and a Save/Cancel bar. The page is grouped into
