@@ -1,4 +1,4 @@
-// Built-in Settings sections: firmware/OTA, board, runtime and network.
+// Built-in Settings sections: network connection, firmware/OTA, hardware and health.
 // They use the same App.settings() API as feature sections; all are read-only,
 // so none of them marks the page dirty.
 const firmwareHtml = `
@@ -7,12 +7,11 @@ const firmwareHtml = `
     <div class="row">
       <button data-k="check" class="primary">Check for updates</button>
       <button data-k="install" hidden>Install</button>
-      <button data-k="reboot">Reboot</button>
     </div>
     <div class="bar" data-k="bar"><div></div></div>
     <div class="msg" data-k="otamsg"></div>`;
 
-const boardHtml = `
+const hardwareHtml = `
     <dl>
       <dt>Chip</dt><dd data-k="chip">–</dd>
       <dt>CPU</dt><dd data-k="cpu">–</dd>
@@ -21,16 +20,18 @@ const boardHtml = `
       <dt>MAC</dt><dd data-k="mac">–</dd>
     </dl>`;
 
-const runtimeHtml = `
+const healthHtml = `
     <dl>
       <dt>Uptime</dt><dd data-k="uptime">–</dd>
       <dt>Last reset</dt><dd data-k="reset">–</dd>
       <dt>Heap free</dt><dd data-k="heap">–</dd>
       <dt>Heap low-water</dt><dd data-k="heapmin">–</dd>
       <dt>PSRAM free</dt><dd data-k="psram">–</dd>
-    </dl>`;
+    </dl>
+    <div class="row"><button data-k="reboot">Reboot</button></div>
+    <div class="msg" data-k="rebootmsg"></div>`;
 
-const networkHtml = `
+const connectionHtml = `
     <dl>
       <dt>SSID</dt><dd data-k="ssid">–</dd>
       <dt>Signal</dt><dd data-k="rssi">–</dd>
@@ -46,6 +47,20 @@ function signal(rssi) {
 let App, timer;
 const els = {};
 const $ = k => els[k];
+
+// /api/info is polled every 3 s while any section showing it is on screen.
+const watching = new Set();
+function watch(id, on) {
+  if (on) watching.add(id); else watching.delete(id);
+  if (watching.size && !timer) {
+    refreshInfo();
+    timer = setInterval(refreshInfo, 3000);
+  } else if (!watching.size && timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+const watched = id => ({ show: () => watch(id, true), hide: () => watch(id, false) });
 
 // Collect the data-k elements of a section so refreshInfo() can fill them.
 function bind(el, html) {
@@ -120,12 +135,12 @@ async function pollOta() {
     try { state = showOta(await App.api('/api/ota')); }
     catch (e) { state = 'rebooting'; }  // board is restarting
   } while (state === 'downloading');
-  if (state === 'rebooting') waitForReboot();
+  if (state === 'rebooting') waitForReboot($('otamsg'));
 }
 
-async function waitForReboot() {
-  $('otamsg').className = 'msg';
-  $('otamsg').textContent = 'Waiting for the board to come back…';
+async function waitForReboot(msg) {
+  msg.className = 'msg';
+  msg.textContent = 'Waiting for the board to come back…';
   await new Promise(r => setTimeout(r, 4000));
   for (;;) {
     try {
@@ -152,31 +167,31 @@ function mountFirmware(el) {
     pollOta();
   };
 
+  App.api('/api/ota').then(o => { if (showOta(o) === 'downloading') pollOta(); }).catch(() => { });
+}
+
+function mountHealth(el) {
+  bind(el, healthHtml);
   $('reboot').onclick = async () => {
     if (!confirm('Reboot the board?')) return;
-    try { await App.api('/api/reboot', { method: 'POST' }); } catch (e) { }
-    waitForReboot();
+    try {
+      await App.api('/api/reboot', { method: 'POST' });
+    } catch (e) {
+      if (e.status === 401) return;  // sign-in cancelled
+    }
+    $('reboot').disabled = true;
+    waitForReboot($('rebootmsg'));
   };
-
-  App.api('/api/ota').then(o => { if (showOta(o) === 'downloading') pollOta(); }).catch(() => { });
 }
 
 export default function (app) {
   App = app;
-  App.settings({
-    id: 'firmware', title: 'Firmware', order: 10, mount: mountFirmware,
-    // Poll board stats only while the Settings page is open.
-    show() {
-      clearInterval(timer);
-      refreshInfo();
-      timer = setInterval(refreshInfo, 3000);
-    },
-    hide() {
-      clearInterval(timer);
-      timer = null;
-    },
-  });
-  App.settings({ id: 'network', title: 'Network', order: 20, mount: el => bind(el, networkHtml) });
-  App.settings({ id: 'board', title: 'Board', order: 30, mount: el => bind(el, boardHtml) });
-  App.settings({ id: 'runtime', title: 'Runtime', order: 40, mount: el => bind(el, runtimeHtml) });
+  App.settings({ id: 'connection', title: 'Connection', category: 'network', order: 10,
+    mount: el => bind(el, connectionHtml), ...watched('connection') });
+  App.settings({ id: 'firmware', title: 'Firmware', category: 'system', order: 10,
+    mount: mountFirmware, ...watched('firmware') });
+  App.settings({ id: 'hardware', title: 'Hardware', category: 'system', order: 20,
+    mount: el => bind(el, hardwareHtml), ...watched('hardware') });
+  App.settings({ id: 'health', title: 'Health', category: 'system', order: 30,
+    mount: mountHealth, ...watched('health') });
 }
