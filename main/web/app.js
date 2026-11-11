@@ -135,7 +135,9 @@ export const App = {
       const isJson = (r.headers.get('Content-Type') || '').includes('json');
       const data = isJson ? await r.json() : await r.text();
       if (r.status === 401) {
-        if (sent && sent === auth) setAuth(null);  // stale or wrong: forget it
+        // Sent before a sign-in or password change finished: retry with the new one.
+        if (auth && sent !== auth) continue;
+        if (sent) setAuth(null);  // stale or wrong: forget it
         if (await askPassword(!!sent)) continue;
       }
       if (!r.ok) {
