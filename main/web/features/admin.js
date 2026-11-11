@@ -273,7 +273,7 @@ function passwordSection(App) {
         if (password !== k.pw2.value) throw new Error('Admin password: the two entries differ');
       }
       const r = await App.api('/api/settings/password', { method: 'POST', body: { password } });
-      App.signIn(r.enabled ? password : null);  // keep sending the right one
+      App.signIn(r.token || null);  // the old token was signed out with the old password
       enabled = r.enabled;
       removing = false;
       k.pw.value = k.pw2.value = '';

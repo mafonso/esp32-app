@@ -23,7 +23,7 @@
 //   App.api(path, {method, body})      fetch; JSON in and out; throws Error(text) with .status
 //                                      on HTTP errors. On 401 it asks for the admin password
 //                                      and retries (401 thrown = the user cancelled)
-//   App.signIn(password|null), App.signedIn   the admin password the page sends
+//   App.signIn(token|null), App.signedIn      the admin session token the page sends
 //   App.card({id, title, order, wide, mount})
 //   App.settings({id, title, order, mount(el, ctx), save, reset})
 //                                      a section on the Settings page. Editable sections
@@ -47,40 +47,64 @@ let everConnected = false;
 
 // ---- Admin sign-in ----
 // Admin requests from this page get a bare 401 (auth.c sends no WWW-Authenticate to
-// fetch() calls, which browsers handle inconsistently): App.api() asks here, then
-// sends the password itself. Kept for the browser session.
+// fetch() calls, which browsers handle inconsistently). App.api() then asks here, trades
+// the password for a session token (POST /api/login) and sends that in X-Admin-Token.
+// Not Basic auth: "Authorization: Basic admin:..." on every log poll trips the
+// "ET SCAN Tomcat Auth Brute Force" rule of router IPSes, which then block this client.
+// Kept for the browser session; the board forgets tokens on reboot or password change.
 
-const AUTH_KEY = 'esp32-admin-auth';
-let auth = null;
-try { auth = sessionStorage.getItem(AUTH_KEY); } catch (e) { }
+const TOKEN_KEY = 'esp32-admin-token';
+let token = null;
+try { token = sessionStorage.getItem(TOKEN_KEY); } catch (e) { }
 let asking = null;  // one dialog shared by concurrent 401s
 
-function setAuth(password) {
-  auth = null;
-  if (password != null) {
-    const bytes = new TextEncoder().encode('admin:' + password);
-    auth = 'Basic ' + btoa(String.fromCharCode(...bytes));
-  }
+function setToken(t) {
+  token = t || null;
   try {
-    if (auth) sessionStorage.setItem(AUTH_KEY, auth); else sessionStorage.removeItem(AUTH_KEY);
+    if (token) sessionStorage.setItem(TOKEN_KEY, token); else sessionStorage.removeItem(TOKEN_KEY);
   } catch (e) { }
 }
 
-// Resolves true once a password was entered, false if cancelled.
-function askPassword(wrong) {
+// Resolves true once signed in, false if cancelled.
+function askPassword(note) {
   if (!asking) {
     asking = new Promise(resolve => {
-      const dlg = $('signin'), pw = $('signin-pw');
+      const dlg = $('signin'), form = dlg.querySelector('form'), pw = $('signin-pw');
+      const ok = form.querySelector('button.primary'), msg = $('signin-msg');
       pw.value = '';
-      $('signin-msg').textContent = wrong ? 'Wrong password, try again.' : '';
-      dlg.returnValue = '';
-      $('signin-cancel').onclick = () => dlg.close('cancel');
-      dlg.onclose = () => {
+      msg.textContent = note || '';
+      const finish = result => {
+        form.onsubmit = dlg.oncancel = null;
         asking = null;
-        const ok = dlg.returnValue === 'ok' && pw.value !== '';
-        if (ok) setAuth(pw.value);
         pw.value = '';
-        resolve(ok);
+        dlg.close();
+        resolve(result);
+      };
+      $('signin-cancel').onclick = () => finish(false);
+      dlg.oncancel = e => { e.preventDefault(); finish(false); };
+      form.onsubmit = async e => {
+        e.preventDefault();
+        if (!pw.value) return;
+        ok.disabled = true;
+        msg.textContent = '';
+        try {
+          const r = await fetch('/api/login', {
+            method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(30000),
+            headers: { 'X-Requested-With': 'fetch', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw.value }),
+          });
+          if (r.ok) {
+            setToken((await r.json()).token);
+            finish(true);
+            return;
+          }
+          msg.textContent = r.status === 401 ? 'Wrong password, try again.' : (await r.text()) || `HTTP ${r.status}`;
+          pw.select();
+        } catch (err) {
+          msg.textContent = 'The board did not respond.';
+        } finally {
+          ok.disabled = false;
+        }
       };
       dlg.showModal();
     });
@@ -114,8 +138,8 @@ export const App = {
     for (;;) {
       // The server rejects state-changing requests without this header (CSRF guard).
       const headers = { 'X-Requested-With': 'fetch' };
-      const sent = auth;
-      if (sent) headers.Authorization = sent;
+      const sent = token;
+      if (sent) headers['X-Admin-Token'] = sent;
       // A board that stops answering must not leave callers (e.g. a disabled Save) waiting forever.
       const opts = { method, headers, cache: 'no-store', signal: AbortSignal.timeout(30000) };
       if (body !== undefined) {
@@ -135,10 +159,10 @@ export const App = {
       const isJson = (r.headers.get('Content-Type') || '').includes('json');
       const data = isJson ? await r.json() : await r.text();
       if (r.status === 401) {
-        // Sent before a sign-in or password change finished: retry with the new one.
-        if (auth && sent !== auth) continue;
-        if (sent) setAuth(null);  // stale or wrong: forget it
-        if (await askPassword(!!sent)) continue;
+        // Sent before a sign-in or password change finished: retry with the new token.
+        if (token && sent !== token) continue;
+        if (sent) setToken(null);  // the board restarted or the password changed
+        if (await askPassword(sent ? 'Signed out (the board restarted or the password changed).' : '')) continue;
       }
       if (!r.ok) {
         const text = r.status === 401 ? 'Admin password required'
@@ -151,9 +175,9 @@ export const App = {
     }
   },
 
-  // The admin password the page sends; call after changing it (null after removing it).
-  signIn(password) { setAuth(password); },
-  get signedIn() { return !!auth; },
+  // The session token the page sends: pass the `token` a password change returns (null when removed).
+  signIn(t) { setToken(t); },
+  get signedIn() { return !!token; },
 
   card(def) {
     cards.push({ order: 100, wide: false, ...def });

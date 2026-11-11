@@ -191,11 +191,50 @@ static esp_err_t name_post(httpd_req_t *req)
 
 // ---- Admin password ----
 
-static esp_err_t password_get(httpd_req_t *req)
+static cJSON *password_json(void)
 {
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "enabled", auth_enabled());
     cJSON_AddStringToObject(o, "user", AUTH_USER);
+    return o;
+}
+
+static esp_err_t password_get(httpd_req_t *req)
+{
+    return web_send_json(req, password_json());
+}
+
+// Adds a fresh session token, so the page that set the password stays signed in.
+static void add_token(cJSON *o)
+{
+    char tok[AUTH_TOKEN_HEX_LEN + 1];
+    if (auth_new_token(tok) == ESP_OK) {
+        cJSON_AddStringToObject(o, "token", tok);
+    }
+}
+
+// The page's sign-in: trades the password for a session token (see auth.h).
+static esp_err_t login_post(httpd_req_t *req)
+{
+    if (!web_check_csrf(req)) {
+        return ESP_OK;
+    }
+    cJSON *body = web_read_json(req, 256);
+    if (!body) {
+        return ESP_OK;
+    }
+    const char *pw = json_str(body, "password");
+    auth_login_t r = auth_enabled() ? auth_login(req, pw ? pw : "") : AUTH_LOGIN_OK;
+    cJSON_Delete(body);
+    if (r == AUTH_LOGIN_REPLIED) {
+        return ESP_OK;
+    }
+    if (r == AUTH_LOGIN_WRONG) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "wrong password");
+        return ESP_OK;
+    }
+    cJSON *o = password_json();
+    add_token(o);
     return web_send_json(req, o);
 }
 
@@ -222,7 +261,9 @@ static esp_err_t password_post(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
         return ESP_OK;
     }
-    return password_get(req);
+    cJSON *o = password_json();
+    add_token(o);
+    return web_send_json(req, o);
 }
 
 // ---- Logs ----
@@ -273,6 +314,7 @@ esp_err_t web_settings_init(void)
         {.uri = "/api/settings/name", .method = HTTP_POST, .handler = name_post},
         {.uri = "/api/settings/password", .method = HTTP_GET, .handler = password_get},
         {.uri = "/api/settings/password", .method = HTTP_POST, .handler = password_post},
+        {.uri = "/api/login", .method = HTTP_POST, .handler = login_post},
         {.uri = "/api/logs", .method = HTTP_GET, .handler = logs_get},
     };
     return web_register_routes(routes, sizeof(routes) / sizeof(routes[0]));
