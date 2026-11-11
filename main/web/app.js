@@ -24,7 +24,8 @@
 //                                      on HTTP errors. On 401 it asks for the admin password
 //                                      and retries (401 thrown = the user cancelled)
 //   App.signIn(token|null), App.signedIn      the admin session token the page sends
-//   App.card({id, title, order, wide, mount})
+//   App.card({id, title, order, span, mount})  span: columns of 3 on wide screens (default 1;
+//                                      `wide: true` = 3); phones show one column
 //   App.settings({id, title, category, order, mount(el, ctx), save, reset})
 //                                      a section on the Settings page, under one of the
 //                                      CATEGORIES below (default 'features'). Editable sections
@@ -190,7 +191,7 @@ export const App = {
   get signedIn() { return !!token; },
 
   card(def) {
-    cards.push({ order: 100, wide: false, ...def });
+    cards.push({ order: 100, ...def, span: def.wide ? 3 : Math.min(Math.max(def.span || 1, 1), 3) });
     if (cardsReady) renderCards();
   },
 
@@ -274,7 +275,7 @@ function renderCards() {
   for (const c of cards) {
     if (!c.el) {
       c.el = document.createElement('section');
-      c.el.className = 'card' + (c.wide ? ' wide' : '');
+      c.el.className = `card span-${c.span}`;
       c.el.innerHTML = '<h2></h2><div></div>';
       c.el.firstElementChild.textContent = c.title;
       try {

@@ -18,7 +18,7 @@ const CSS = `
 .led-seg button { border: 0; background: none; color: var(--muted); padding: 6px 4px; border-radius: 7px; font-size: 14px; }
 .led-seg button:hover { color: var(--text); }
 .led-seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
-.led-f { display: grid; grid-template-columns: 82px 1fr 48px; align-items: center; gap: 10px; margin-top: 14px; }
+.led-f { display: grid; grid-template-columns: 82px minmax(0, 1fr) 60px; align-items: center; gap: 10px; margin-top: 14px; }
 .led-f > span:first-child { color: var(--muted); }
 .led-f output, .led-f .led-hex { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
 .led-f input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); }
@@ -124,7 +124,7 @@ function mountCard(el, App) {
 export default function (App) {
   addStyle();
 
-  App.card({ id: 'led', title: 'RGB LED', order: 20, mount: mountCard });
+  App.card({ id: 'led', title: 'RGB LED', order: 20, span: 2, mount: mountCard });
 
   let stored = 48, sel;
   App.settings({

@@ -33,7 +33,7 @@ export default function (App) {
     id: 'touch',
     title: 'Touch pins',
     order: 35,
-    wide: true,
+    span: 3,
     mount(el, App) {
       injectStyle();
       el.innerHTML = `
