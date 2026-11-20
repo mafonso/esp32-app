@@ -8,6 +8,7 @@
 
 typedef struct {
     bool connected;
+    bool configured;  // the station has a network to join
     char ssid[33];
     char ip[16];
     int rssi;
@@ -47,6 +48,22 @@ const char *wifi_try_state_name(wifi_try_state_t state);
 esp_err_t wifi_scan(wifi_ap_record_t **out, uint16_t *count);
 
 void wifi_get_status(wifi_status_t *out);
+
+typedef struct {
+    bool active;
+    bool open;  // no password (CONFIG_APP_SETUP_AP_PASSWORD unset)
+    char ssid[33];
+    char ip[16];
+    int clients;
+} wifi_ap_status_t;
+
+// The setup hotspot (see wifi.c) turns itself on and off; this forces it on until
+// turned off or a new network is saved, or turns it off (it comes back on its own
+// if the station has nothing to join).
+esp_err_t wifi_setup_ap(bool on);
+void wifi_get_ap_status(wifi_ap_status_t *out);
+// The hotspot's IPv4 address in network byte order, 0 while it is off.
+uint32_t wifi_ap_ip4(void);
 const char *wifi_hostname(void);
 
 // "<prefix>-xxyyzz" from the MAC, used when no name is saved.

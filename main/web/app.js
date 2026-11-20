@@ -34,6 +34,8 @@
 //                                      (a throw keeps it open and shows the message);
 //                                      Cancel/close call reset(). Optional show()/hide()
 //                                      run when the section's category is shown/left.
+//   App.notice(content, cls)          a message above the main page's cards until replaced;
+//                                      content is text or a Node, null clears; cls 'ok'/'warn'
 //   App.connected, App.info (last /api/info), App.fmt (kb, mb, duration)
 
 import coreSettings from '/settings.js';
@@ -201,6 +203,11 @@ export const App = {
     renderSections();
   },
 
+  notice(content, cls = '') {
+    notice = content == null ? null : { content, cls };
+    showNotice();
+  },
+
   fmt: {
     kb: b => Math.round(b / 1024) + ' KB',
     mb: b => (b / 1048576).toFixed(b >= 10485760 ? 0 : 1) + ' MB',
@@ -212,6 +219,29 @@ export const App = {
 };
 
 // ---- Header ----
+
+let notice = null;      // App.notice()
+let setupRouted = false;
+
+// The notice line: App.notice()'s message, else a pointer to Wi-Fi setup while this
+// page is open over the board's setup hotspot.
+function showNotice() {
+  const el = $('notice'), w = App.info && App.info.wifi;
+  el.replaceChildren();
+  el.className = 'notice';
+  if (notice) {
+    el.append(notice.content);
+    if (notice.cls) el.classList.add(notice.cls);
+  } else if (w && w.via_setup_ap) {
+    const a = document.createElement('a');
+    a.href = '#/settings/network';
+    a.textContent = 'Set up Wi-Fi';
+    el.append(w.connected
+      ? `You are on the board's setup hotspot. The board is also on '${w.ssid}' at ${w.ip}. `
+      : 'You are on the board\'s setup hotspot: it is not on a Wi-Fi network yet. ', a);
+  }
+  el.hidden = !el.childNodes.length || currentPath() === '/settings';
+}
 
 function showHeader() {
   const w = App.info && App.info.wifi;
@@ -227,6 +257,13 @@ function showHeader() {
 async function refreshInfo() {
   try { App.info = await App.api('/api/info'); } catch (e) { }
   showHeader();
+  showNotice();
+  // Opened over the setup hotspot with no network to join: go straight to Wi-Fi setup.
+  const w = App.info && App.info.wifi;
+  if (w && w.via_setup_ap && !w.configured && !setupRouted && currentPath() === '/') {
+    location.hash = '#/settings/network';
+  }
+  if (w) setupRouted = true;
 }
 
 // ---- WebSocket ----
@@ -487,6 +524,7 @@ function route() {
   $('hdr-main').hidden = path === '/settings';
   $('hdr-settings').hidden = path !== '/settings';
   shown = path;
+  showNotice();
   updateSaveBar();
   window.scrollTo(0, 0);
 }

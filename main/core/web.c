@@ -1,4 +1,6 @@
 #include <string.h>
+#include <strings.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include "esp_http_server.h"
 #include "esp_app_desc.h"
@@ -12,6 +14,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "lwip/sockets.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "cJSON.h"
@@ -104,6 +107,17 @@ cJSON *web_info_json(void)
     cJSON_AddStringToObject(net, "ssid", ws.ssid);
     cJSON_AddStringToObject(net, "ip", ws.ip);
     cJSON_AddNumberToObject(net, "rssi", ws.rssi);
+    cJSON_AddBoolToObject(net, "configured", ws.configured);
+    wifi_ap_status_t ap;
+    wifi_get_ap_status(&ap);
+    cJSON *hs = cJSON_AddObjectToObject(net, "setup_ap");
+    cJSON_AddBoolToObject(hs, "active", ap.active);
+    if (ap.active) {
+        cJSON_AddStringToObject(hs, "ssid", ap.ssid);
+        cJSON_AddBoolToObject(hs, "open", ap.open);
+        cJSON_AddStringToObject(hs, "ip", ap.ip);
+        cJSON_AddNumberToObject(hs, "clients", ap.clients);
+    }
     return root;
 }
 
@@ -176,9 +190,60 @@ cJSON *web_read_json(httpd_req_t *req, size_t max_len)
     return json;
 }
 
+bool web_via_setup_ap(httpd_req_t *req)
+{
+    uint32_t ap = wifi_ap_ip4();
+    if (!ap) {
+        return false;
+    }
+    struct sockaddr_storage local;
+    socklen_t len = sizeof(local);
+    if (getsockname(httpd_req_to_sockfd(req), (struct sockaddr *)&local, &len) != 0) {
+        return false;
+    }
+    if (local.ss_family == AF_INET) {
+        return ((struct sockaddr_in *)&local)->sin_addr.s_addr == ap;
+    }
+    if (local.ss_family == AF_INET6) {  // the server's dual-stack socket: IPv4-mapped
+        const uint32_t *a = ((struct sockaddr_in6 *)&local)->sin6_addr.un.u32_addr;
+        return a[0] == 0 && a[1] == 0 && a[2] == htonl(0xffff) && a[3] == ap;
+    }
+    return false;
+}
+
+// On the setup hotspot the captive DNS sends every name here. Answer requests for
+// other hosts (phones' "is there internet?" checks) with a redirect to the page, so
+// the phone pops it up. iOS needs a body to count it as a portal.
+static bool captive_redirect(httpd_req_t *req)
+{
+    if (!web_via_setup_ap(req)) {
+        return false;
+    }
+    char host[64] = "", local[40], ip[16];
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host));
+    host[strcspn(host, ":")] = '\0';
+    uint32_t a = wifi_ap_ip4();
+    snprintf(ip, sizeof(ip), "%d.%d.%d.%d", (int)(a & 0xff), (int)(a >> 8 & 0xff), (int)(a >> 16 & 0xff),
+             (int)(a >> 24));
+    snprintf(local, sizeof(local), "%s.local", wifi_hostname());
+    if (!host[0] || strcmp(host, ip) == 0 || strcasecmp(host, local) == 0) {
+        return false;
+    }
+    char url[32];
+    snprintf(url, sizeof(url), "http://%s/", ip);
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", url);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, "Board setup");
+    return true;
+}
+
 // Every file under main/web/ is embedded at build time (see web_assets.cmake).
 static esp_err_t static_get(httpd_req_t *req)
 {
+    if (captive_redirect(req)) {
+        return ESP_OK;
+    }
     char path[128];
     size_t len = strcspn(req->uri, "?#");
     if (len >= sizeof(path)) {
@@ -230,7 +295,10 @@ esp_err_t web_register_routes(const httpd_uri_t *routes, size_t n)
 
 static esp_err_t info_get(httpd_req_t *req)
 {
-    return web_send_json(req, web_info_json());
+    cJSON *info = web_info_json();
+    // Whether this page is open over the setup hotspot, so it can offer Wi-Fi setup.
+    cJSON_AddBoolToObject(cJSON_GetObjectItem(info, "wifi"), "via_setup_ap", web_via_setup_ap(req));
+    return web_send_json(req, info);
 }
 
 static esp_err_t ota_status_get(httpd_req_t *req)

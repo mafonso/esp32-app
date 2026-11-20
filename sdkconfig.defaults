@@ -22,8 +22,9 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 # WebSocket hub at /ws (core/web_ws.c). Existing build dirs: delete sdkconfig
 # so this applies, or the build stops with an #error.
 CONFIG_HTTPD_WS_SUPPORT=y
-# Room for 16 browser connections (web.c WEB_MAX_SOCKETS) + 3 httpd-internal + mDNS/OTA
-CONFIG_LWIP_MAX_SOCKETS=20
+# Room for 16 browser connections (web.c WEB_MAX_SOCKETS) + 3 httpd-internal + OTA
+# + the setup hotspot's captive DNS
+CONFIG_LWIP_MAX_SOCKETS=21
 # Connections waiting for accept() during a page load burst (default 6)
 CONFIG_LWIP_TCP_ACCEPTMBOX_SIZE=16
 # TCP PCBs, which also hold closed connections in TIME_WAIT (2 min) and FIN_WAIT. At the

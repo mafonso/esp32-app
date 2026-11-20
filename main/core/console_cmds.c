@@ -22,6 +22,7 @@ static void print_menu(void)
            "=============== %s %s ===============\n"
            "  status                 board, firmware and network info\n"
            "  scan                   list nearby Wi-Fi networks\n"
+           "  ap [on|off]            the Wi-Fi setup hotspot (on by itself without Wi-Fi)\n"
            "  wifi <ssid> [password] save Wi-Fi credentials and reconnect\n"
            "  name [hostname]        set the DHCP/mDNS name ('name -' resets it)\n"
            "  passwd <password>      set the web admin password ('passwd -' removes it)\n"
@@ -51,16 +52,41 @@ static int cmd_status(int argc, char **argv)
 
 static int cmd_scan(int argc, char **argv)
 {
-    if (esp_wifi_scan_start(NULL, true) != ESP_OK) {
-        printf("scan failed\n");
+    wifi_ap_record_t *aps;
+    uint16_t n;
+    esp_err_t err = wifi_scan(&aps, &n);
+    if (err != ESP_OK) {
+        printf("scan failed: %s\n", esp_err_to_name(err));
         return 1;
     }
-    uint16_t n = 20;
-    wifi_ap_record_t aps[20];
-    esp_wifi_scan_get_ap_records(&n, aps);
     for (int i = 0; i < n; i++) {
         printf("  %-32s ch%-2d %4d dBm %s\n", (char *)aps[i].ssid, aps[i].primary, aps[i].rssi,
                aps[i].authmode == WIFI_AUTH_OPEN ? "open" : "");
+    }
+    free(aps);
+    return 0;
+}
+
+static int cmd_ap(int argc, char **argv)
+{
+    if (argc == 2 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0)) {
+        bool on = argv[1][1] == 'n';
+        esp_err_t err = wifi_setup_ap(on);
+        if (err != ESP_OK) {
+            printf("failed: %s\n", esp_err_to_name(err));
+            return 1;
+        }
+    } else if (argc != 1) {
+        printf("usage: ap [on|off]\n");
+        return 1;
+    }
+    wifi_ap_status_t ap;
+    wifi_get_ap_status(&ap);
+    if (ap.active) {
+        printf("setup hotspot on: '%s' (%s), http://%s/, %d client(s)\n", ap.ssid,
+               ap.open ? "open" : "password", ap.ip, ap.clients);
+    } else {
+        printf("setup hotspot off\n");
     }
     return 0;
 }
@@ -197,6 +223,7 @@ esp_err_t console_start(void)
         {.command = "menu", .help = "Show the setup menu", .func = cmd_menu},
         {.command = "status", .help = "Board, firmware and network info", .func = cmd_status},
         {.command = "scan", .help = "List nearby Wi-Fi networks", .func = cmd_scan},
+        {.command = "ap", .help = "Show or switch the Wi-Fi setup hotspot", .hint = "[on|off]", .func = cmd_ap},
         {.command = "wifi", .help = "Save Wi-Fi credentials and reconnect", .hint = "<ssid> [password]", .func = cmd_wifi},
         {.command = "name", .help = "Set the DHCP/mDNS hostname ('-' resets it)", .hint = "[hostname]", .func = cmd_name},
         {.command = "passwd", .help = "Set the web admin password ('-' removes it)", .hint = "<password>", .func = cmd_passwd},

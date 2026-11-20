@@ -96,6 +96,9 @@ static esp_err_t wifi_settings_get(httpd_req_t *req)
     cJSON_AddStringToObject(o, "state", wifi_try_state_name(state));
     cJSON_AddNumberToObject(o, "attempt", attempt);
     cJSON_AddStringToObject(o, "message", msg);
+    wifi_status_t ws;
+    wifi_get_status(&ws);
+    cJSON_AddStringToObject(o, "ip", ws.ip);  // where to find the board after a switch
     return web_send_json(req, o);
 }
 
