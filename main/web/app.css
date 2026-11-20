@@ -42,6 +42,11 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .card.span-2 { grid-column: span 2; } .card.span-3 { grid-column: 1 / -1; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } .card.span-2 { grid-column: auto; } }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+/* A message above the cards: set by App.notice(), or the setup-hotspot hint */
+.notice { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  border-radius: 12px; padding: 12px 16px; margin: 0 0 16px; overflow-wrap: anywhere; }
+.notice.ok { border-left-color: var(--ok); } .notice.warn { border-left-color: var(--warn); }
+.notice a { color: var(--accent); font-weight: 600; }
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
 dt { color: var(--muted); }

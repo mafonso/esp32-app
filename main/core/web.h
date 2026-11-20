@@ -30,6 +30,9 @@ esp_err_t web_send_json(httpd_req_t *req, cJSON *json);
 // else sends 403 and returns false (the handler should then return ESP_OK).
 bool web_check_csrf(httpd_req_t *req);
 
+// True if the request came in over the setup hotspot (wifi.h) rather than the LAN.
+bool web_via_setup_ap(httpd_req_t *req);
+
 // Read a JSON request body of at most max_len bytes. On failure sends 400 and
 // returns NULL (the handler should then return ESP_OK). Caller frees the result.
 cJSON *web_read_json(httpd_req_t *req, size_t max_len);

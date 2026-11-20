@@ -2,8 +2,9 @@
 // and a live log viewer. No main-page card. API in core/web_settings.c.
 
 const css = `
-.nets { display: grid; gap: 4px; margin-top: 8px; max-height: 240px; overflow-y: auto; }
-.nets button { display: flex; justify-content: space-between; gap: 12px; text-align: left; padding: 8px 10px; }
+.nets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 8px; max-height: 240px; overflow-y: auto; }
+.nets button { min-width: 0; display: flex; justify-content: space-between; gap: 12px; text-align: left; padding: 8px 10px; }
+.nets button span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .nets button span:last-child { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .nets button.sel { border-color: var(--accent); }
 .suffix { color: var(--muted); }
@@ -40,8 +41,28 @@ const validName = n => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,29}[A-Za-z0-9])?$/.test(n)
 // ---- Wi-Fi ----
 
 function wifiSection(App) {
-  let k, ctx;
+  let k, ctx, scanned = false;
   const host = () => (App.info && App.info.wifi && App.info.wifi.hostname) || location.hostname;
+  const viaAp = () => !!(App.info && App.info.wifi && App.info.wifi.via_setup_ap);
+
+  // A line of text with links: parts are strings or [text, href].
+  function line(...parts) {
+    const p = document.createElement('span');
+    for (const x of parts) {
+      if (typeof x === 'string') { p.append(x); continue; }
+      const a = document.createElement('a');
+      a.textContent = x[0];
+      a.href = x[1];
+      p.append(a);
+    }
+    return p;
+  }
+
+  function showHint() {
+    k.url.textContent = `http://${host()}.local/`;
+    k.hint.hidden = viaAp();
+    k.aphint.hidden = !viaAp();
+  }
 
   async function loadCurrent() {
     try { k.cur.textContent = (await App.api('/api/settings/wifi')).ssid || 'none'; } catch (e) { }
@@ -50,6 +71,7 @@ function wifiSection(App) {
   function edited() { ctx.dirty(k.ssid.value !== '' || k.pass.value !== ''); }
 
   async function scan() {
+    scanned = true;
     k.scan.disabled = true;
     say(k.msg, 'Scanning… (a few seconds)');
     try {
@@ -92,16 +114,23 @@ function wifiSection(App) {
         </label>
         <div class="nets" data-k="nets" hidden></div>
         <label>Password<input type="password" data-k="pass" maxlength="63" autocomplete="new-password" placeholder="empty for an open network"></label>
-        <p class="hint">On Save the board tries the new network for up to 30 s and keeps it only if it gets an
+        <p class="hint" data-k="aphint" hidden>You are on the board's setup hotspot. Pick your network and
+          Save: the board joins it and the hotspot turns off a minute later. Then put this device back on
+          that network and open the address shown here.</p>
+        <p class="hint" data-k="hint">On Save the board tries the new network for up to 30 s and keeps it only if it gets an
           address; otherwise it goes back to the saved one. This page may lose contact meanwhile. On a different
           network the board gets a new IP: reopen it from that network at <b data-k="url"></b>.</p>
         <div class="msg" data-k="msg"></div>`);
-      k.url.textContent = `http://${host()}.local/`;
+      showHint();
       k.ssid.oninput = k.pass.oninput = edited;
       k.scan.onclick = scan;
       loadCurrent();
     },
-    show() { loadCurrent(); k.url.textContent = `http://${host()}.local/`; },
+    show() {
+      loadCurrent();
+      showHint();
+      if (viaAp() && !scanned) scan();  // setting up from the hotspot: list networks right away
+    },
     async save() {
       const ssid = k.ssid.value, password = k.pass.value;
       if (!ssid) throw new Error('Wi-Fi: enter or pick a network name');
@@ -117,6 +146,13 @@ function wifiSection(App) {
         if (st.attempt !== start.attempt || st.state === 'trying') continue;
         if (st.state === 'ok') {
           say(k.msg, st.message, 'ok');
+          // Save returns to the main page, so leave the way back there.
+          if (viaAp()) {
+            const name = `http://${host()}.local/`;
+            App.notice(line(`The board is on '${ssid}' now. Put this device back on '${ssid}' and open `,
+              [`http://${st.ip}/`, `http://${st.ip}/`], ' or ', [name, name],
+              '. The setup hotspot turns off in about a minute.'), 'ok');
+          }
           k.cur.textContent = ssid;
           k.ssid.value = k.pass.value = '';
           k.nets.hidden = true;
@@ -125,7 +161,9 @@ function wifiSection(App) {
         say(k.msg, st.message, 'err');
         throw new Error(st.message);
       }
-      const msg = `Lost contact with the board. If '${ssid}' is a different network, join it and open http://${host()}.local/`;
+      const msg = viaAp()
+        ? `Lost contact with the board's hotspot. If it joined '${ssid}', it is at http://${host()}.local/ on that network; otherwise rejoin the hotspot '${host()}' and try again.`
+        : `Lost contact with the board. If '${ssid}' is a different network, join it and open http://${host()}.local/`;
       say(k.msg, msg, 'err');
       throw new Error(msg);
     },

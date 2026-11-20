@@ -37,7 +37,10 @@ const connectionHtml = `
       <dt>Signal</dt><dd data-k="rssi">–</dd>
       <dt>IP</dt><dd data-k="ip">–</dd>
       <dt>Hostname</dt><dd data-k="hostname">–</dd>
-    </dl>`;
+      <dt>Setup hotspot</dt><dd data-k="hotspot">–</dd>
+    </dl>
+    <p class="hint">Without Wi-Fi the board opens a setup hotspot named after it: join that from a
+      phone or laptop to set the network here. <span data-k="hotspothint"></span></p>`;
 
 function signal(rssi) {
   const q = rssi >= -60 ? 'excellent' : rssi >= -70 ? 'good' : rssi >= -80 ? 'fair' : 'weak';
@@ -89,6 +92,13 @@ async function refreshInfo() {
   $('rssi').textContent = w.connected ? signal(w.rssi) : '–';
   $('ip').textContent = w.ip || '–';
   $('hostname').textContent = w.hostname + '.local';
+  const ap = w.setup_ap || {};
+  $('hotspot').textContent = ap.active
+    ? `on · '${ap.ssid}'${ap.open ? ' (open)' : ''} · ${ap.ip} · ${ap.clients} device${ap.clients === 1 ? '' : 's'}`
+    : 'off';
+  $('hotspothint').textContent = ap.active && w.connected
+    ? 'It turns off a minute after the board is on Wi-Fi.'
+    : ap.active ? '' : 'Console: ap on | ap off.';
 }
 
 function showOta(o) {

@@ -22,4 +22,22 @@ menu "App configuration"
         help
             The device hostname is <prefix>-<last 3 MAC bytes>, also advertised over mDNS.
 
+    config APP_SETUP_AP_PASSWORD
+        string "Setup hotspot password"
+        default ""
+        help
+            The setup hotspot is named after the hostname and lets a phone set the Wi-Fi
+            from the web UI. Empty (or under 8 characters) means an open hotspot; set the
+            admin password to keep strangers from changing settings through it. A
+            password goes in the git-ignored sdkconfig.secrets.
+
+    config APP_SETUP_AP_AFTER_S
+        int "Open the setup hotspot after this long without Wi-Fi (s)"
+        default 180
+        range 0 86400
+        help
+            With a network saved but unreachable, the setup hotspot comes up after this
+            many seconds (0: only when no network is saved). It goes off again a minute
+            after the board is back on Wi-Fi.
+
 endmenu

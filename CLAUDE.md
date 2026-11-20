@@ -45,6 +45,11 @@ esp-devbox is a Proxmox LXC container with ESP-IDF v6.1, Claude Code, `gh` and t
   `status` command shows the new one.
 - Hangs that only the user's devices see (not esp-devbox): check the router's IPS threat log first. It
   blocks clients that repeat `Authorization: Basic admin:…`, which is why the page uses a session token.
+- **Setup hotspot** (`wifi.c`, `captive_dns.c`): with no network saved, or the saved one unreachable for
+  `CONFIG_APP_SETUP_AP_AFTER_S` (180 s), the board also runs an open access point named after its
+  hostname, at `http://192.168.4.1/`, with a captive-portal DNS, so a phone can join it and pick a network
+  in Settings → Network. It goes off a minute after the station is back on Wi-Fi. Console: `ap [on|off]`.
+  esp-devbox has no Wi-Fi radio, so test it from a phone.
 - `sdkconfig.secrets` is not in the clone. The board keeps its Wi-Fi credentials in NVS across
   flashes, so it isn't needed unless the flash is erased.
 
@@ -64,7 +69,7 @@ reach Wi-Fi within 60 s rolls back on its own.
 | Path | |
 |---|---|
 | `main/app_main.c` | boot order: settings → Wi-Fi → features init → web → feature routes → console → OTA confirm |
-| `main/core/` | shared infrastructure: `wifi`, `settings` (NVS), `auth` (admin password), `logbuf` (log ring buffer), `ota`, `web` (HTTP + static files), `web_settings` (settings/admin API), `web_ws` (WebSocket hub), `console_cmds`, `app_events` |
+| `main/core/` | shared infrastructure: `wifi` (station + setup hotspot), `captive_dns`, `settings` (NVS), `auth` (admin password), `logbuf` (log ring buffer), `ota`, `web` (HTTP + static files), `web_settings` (settings/admin API), `web_ws` (WebSocket hub), `console_cmds`, `app_events` |
 | `main/features/` | one `.c` per feature, plus the registry `features.c` |
 | `main/web/` | frontend, embedded as-is: `index.html`, `app.css`, `app.js` (shell), `settings.js`, `chart.js` (live line chart for cards) |
 | `main/web/features/` | one ES module per feature UI, loaded automatically |
