@@ -50,6 +50,9 @@ esp-devbox is a Proxmox LXC container with ESP-IDF v6.1, Claude Code, `gh` and t
   hostname, at `http://192.168.4.1/`, with a captive-portal DNS, so a phone can join it and pick a network
   in Settings → Network. It goes off a minute after the station is back on Wi-Fi. Console: `ap [on|off]`.
   esp-devbox has no Wi-Fi radio, so test it from a phone.
+- **Factory reset** (`features/factory_reset.c`) erases NVS and reboots: Settings → System, console
+  `factory-reset yes`, or hold BOOT for 10 s. Don't run it on esp-dev unattended: the board then needs
+  a phone to get back on Wi-Fi. Over USB, `esptool erase-region 0x9000 0x6000` does the same.
 - `sdkconfig.secrets` is not in the clone. The board keeps its Wi-Fi credentials in NVS across
   flashes, so it isn't needed unless the flash is erased.
 
