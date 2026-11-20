@@ -240,6 +240,10 @@ static esp_err_t apply_creds(const char *ssid, const char *pass)
     strlcpy((char *)cfg.sta.password, pass, sizeof(cfg.sta.password));
     cfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
     cfg.sta.pmf_cfg.capable = true;
+    // With several access points on one SSID, join the strongest rather than the first
+    // one the default fast scan finds.
+    cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     ESP_LOGI(TAG, "connecting to '%s'", ssid);
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
     s_sta_configured = err == ESP_OK;

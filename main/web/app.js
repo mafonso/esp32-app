@@ -353,6 +353,7 @@ async function loadFeatures() {
 const settingsPage = {
   cat: null,   // category on screen, null while the page is closed
   last: null,  // reopened next time
+  auto: false, // cat was picked by default, not by the user
   tabs: {},
   panes: {},
   mount(el) {
@@ -379,7 +380,12 @@ const settingsPage = {
     }
     renderSections();
   },
-  show() { showCategory(categoryFromHash()); },
+  // auto: no category was asked for (bare #/settings, none chosen before), so the page may move to
+  // an earlier category once a late-loading feature module registers a section there.
+  show() {
+    const asked = location.hash.startsWith('#/settings/') || settingsPage.last;
+    showCategory(categoryFromHash(), !asked);
+  },
   hide() { showCategory(null); },
 };
 
@@ -390,11 +396,13 @@ function categoryFromHash() {
 }
 
 // Shows one category (null: none) and runs hide()/show() of the sections it leaves/enters.
-function showCategory(id) {
+// auto: picked by default rather than by the user, so not remembered and open to moving.
+function showCategory(id, auto = false) {
   const prev = settingsPage.cat;
+  settingsPage.auto = auto;
+  if (id && !auto) settingsPage.last = id;  // also when re-clicking the tab already on screen
   if (id === prev) return;
   settingsPage.cat = id;
-  if (id) settingsPage.last = id;
   for (const s of sections) if (s.el && s.cat === prev) s.hide?.();
   for (const c of CATEGORIES) {
     settingsPage.panes[c.id].hidden = c.id !== id;
@@ -428,6 +436,10 @@ function renderSections() {
     settingsPage.tabs[s.cat].hidden = false;
     // Registered while its category is on screen (feature modules load late).
     if (fresh && s.cat === settingsPage.cat) s.show?.();
+  }
+  if (settingsPage.cat && settingsPage.auto) {
+    const first = CATEGORIES.find(c => sections.some(s => s.cat === c.id))?.id;
+    if (first && first !== settingsPage.cat) showCategory(first, true);
   }
 }
 
